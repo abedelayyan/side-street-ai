@@ -1,0 +1,32 @@
+{
+  "name": "side-street-ai",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "The open-source multiplayer layer for coding agents",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abedelayyan/side-street-ai.git"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "eslint": "^9.32.0",
+    "prettier": "^3.6.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.38.0"
+  }
+}

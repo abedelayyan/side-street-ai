@@ -14,7 +14,7 @@ around them.
 ## Why
 
 - Agents now run tasks that take hours, days, even weeks — but every session is trapped on one person's laptop.
-- Every shipping coding agent solved *single-user* steering the same way (queue input, inject at the next tool-call boundary, hard-interrupt escape hatch). **Nobody has shipped multiple humans steering one agent.** That's what we're building.
+- Every shipping coding agent solved _single-user_ steering the same way (queue input, inject at the next tool-call boundary, hard-interrupt escape hatch). **Nobody has shipped multiple humans steering one agent.** That's what we're building.
 - The moments teams already crowd around one problem — incident response, on-call debugging, senior-steers-junior mentoring — deserve better than screen-share and copy-paste.
 
 ## What it will look like
@@ -27,12 +27,16 @@ around them.
 
 ## Documentation
 
-| Doc | What it is |
-|---|---|
-| [`docs/PLAN.md`](docs/PLAN.md) | The project plan — phases, architecture decisions, benchmarks. The source of truth. |
-| [`docs/research/`](docs/research/) | The research foundation the plan is built on. |
-| [`CLAUDE.md`](CLAUDE.md) | The working agreement all contributors (human and agent) follow. |
+| Doc                                | What it is                                                                          |
+| ---------------------------------- | ----------------------------------------------------------------------------------- |
+| [`docs/PLAN.md`](docs/PLAN.md)     | The project plan — phases, architecture decisions, benchmarks. The source of truth. |
+| [`docs/research/`](docs/research/) | The research foundation the plan is built on.                                       |
+| [`CLAUDE.md`](CLAUDE.md)           | The working agreement all contributors (human and agent) follow.                    |
 
 ## License
 
-[Apache-2.0](LICENSE).
+[AGPL-3.0](LICENSE). Side Street is and will remain open source: you can use it, self-host it,
+and modify it freely. The AGPL's network copyleft means anyone offering Side Street as a
+service must open-source their modifications — which keeps closed commercial resale off the
+table while keeping the project genuinely open. Commercial licensing for the hosted control
+plane is described in [`docs/PLAN.md`](docs/PLAN.md).

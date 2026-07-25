@@ -11,7 +11,7 @@ agent**.
 
 1. Identify which phase and deliverable in `docs/PLAN.md` the task serves.
 2. If it serves none, stop — either the task is out of scope, or the plan needs an amendment
-   PR *first* (and locked architecture decisions additionally need an ADR in `docs/adr/`).
+   PR _first_ (and locked architecture decisions additionally need an ADR in `docs/adr/`).
 3. Check the current phase's exit benchmark; work that doesn't move a benchmark is suspect.
 
 Background context lives in `docs/research/2026-07-multiplayer-ai-foundation.md`. Facts in it
@@ -34,7 +34,7 @@ primary docs before writing code that depends on them.
 - **Branches:** trunk-based; short-lived `feat/…`, `fix/…`, `docs/…`, `chore/…` branches off `main`; squash-merge via PR only.
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`), imperative mood, ≤72-char subject.
 - **PRs:** small (< ~400 lines where possible), green CI, description states what + why + which PLAN.md deliverable it advances.
-- **Tests:** new logic ships with tests. The hash chain, redaction pipeline, steering queue, and replay logic require exhaustive coverage — they *are* the product. Red-team prompt-injection fixtures stay in CI permanently and must never be weakened to make a build pass.
+- **Tests:** new logic ships with tests. The hash chain, redaction pipeline, steering queue, and replay logic require exhaustive coverage — they _are_ the product. Red-team prompt-injection fixtures stay in CI permanently and must never be weakened to make a build pass.
 - **No `any`** in `packages/core`, `packages/redaction`, or protocol code.
 - **No secrets in the repo, ever** — including examples, fixtures, and docs.
 - **Releases:** changesets → semver → signed tag; never bump versions by hand.
