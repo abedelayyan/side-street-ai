@@ -19,3 +19,13 @@ export {
   type VerifyResult,
 } from "./hash-chain.js";
 export { ROLES, canApproveTools, canSteer, canSuggest, roleSchema, type Role } from "./roles.js";
+export {
+  SteeringController,
+  type HandoffResult,
+  type Participant,
+  type QueuedMessage,
+  type SteeringEffect,
+  type SteeringState,
+  type SubmitResult,
+  type TurnPhase,
+} from "./steering.js";

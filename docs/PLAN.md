@@ -130,8 +130,9 @@ side-street-ai/
 │   ├── adr/                   # Architecture Decision Records (template + numbered ADRs)
 │   └── protocol.md            # Our session/event wire protocol spec
 ├── packages/
-│   ├── core/                  # Event types, hash chain, protocol schemas (zod), shared logic
-│   ├── session-do/            # Cloudflare Worker + Durable Object session actor
+│   ├── core/                  # Event types, hash chain, steering engine, protocol schemas (zod)
+│   ├── session/               # Runtime-agnostic session actor (log + roster + steering + replay behind ports)
+│   ├── session-do/            # Cloudflare Worker + Durable Object wrapper binding @side-street/session
 │   ├── acp-client/            # ACP client driving backing agents over stdio/WebSocket
 │   ├── sandbox/               # Sandbox provider interface + E2B / CF Sandbox adapters
 │   ├── redaction/             # Secret scanning + per-role redaction pipeline
@@ -166,12 +167,13 @@ hash-chained event log can be built, verified, and detected-as-tampered in unit 
 _Goal: the thinnest vertical slice that answers the existential question: can two engineers
 co-steer one debugging session without producing incoherent agent behavior?_
 
-- [ ] `session-do`: one Durable Object per session; WebSocket Hibernation; append + broadcast; participant roster
-- [ ] `acp-client`: drive Claude Code over ACP (`session/prompt`, `session/update` streaming, `session/cancel`); forward all updates into the event log
-- [ ] `sandbox`: E2B adapter behind a provider interface; agent boots in a per-session microVM with a cloned repo
+- [x] Steering v1 engine (`@side-street/core`): Driver/Navigator/Observer authority, attributed intervention queue drained at tool-call boundaries, hard-interrupt with single-cancel semantics, "take the wheel" handoff — unit-tested as a pure state machine
+- [x] Session actor (`@side-street/session`): append-only hash-chained log with fan-out, roster, steering integration, offset replay, snapshot/restore — runtime-agnostic behind storage/broadcast/agent ports
+- [x] `acp-client`: JSON-RPC 2.0 over pluggable transports; `session/prompt` / `session/update` streaming / `session/cancel`; `request_permission` routing (handler failure denies, never allows); update→event translation — tested against an in-process fake agent
+- [ ] `session-do`: Durable Object wrapper binding `@side-street/session` to SQLite + WebSocket Hibernation; WS wire protocol (join/steer/handoff frames) added to `docs/protocol.md`
+- [ ] `sandbox`: E2B adapter behind a provider interface; agent boots in a per-session microVM with a cloned repo; ACP bridge connects it to the session actor
 - [ ] `web`: minimal session view — live token stream, tool calls with status, participant list, chat input
-- [ ] Steering v1: Driver/Navigator/Observer roles; intervention queue drained at tool-call boundaries with author attribution; hard-interrupt (Escape → `session/cancel` → re-prompt with queued messages); "take the wheel" handoff
-- [ ] Late-joiner replay v1: join mid-session, receive checkpoint + events from offset, land in a live stream
+- [ ] Late-joiner replay v1 end-to-end: join mid-session over WS, receive events from offset, land in the live stream (actor-level replay + tail verification are done)
 
 **Exit benchmark:** two humans in different browsers co-steer one real debugging session
 (seeded bug in a sample repo) to a fix, with the full attributed timeline visible.
@@ -288,6 +290,7 @@ before committing code that depends on them.
 
 ---
 
-_Last amended: 2026-07-25 (license changed Apache-2.0 → AGPL-3.0 to protect against closed
-commercial resale while staying open source; see ADR-0003). Amend via PR; every amendment
-updates this line._
+_Last amended: 2026-07-25 (Phase 1 layering: the steering engine lives in `core`, the
+session actor is runtime-agnostic in `packages/session`, and `session-do` becomes the thin
+Durable Object wrapper binding it — keeps the ADR-0001 Cloudflare-exit hatch real and the
+product logic exhaustively testable). Amend via PR; every amendment updates this line._
