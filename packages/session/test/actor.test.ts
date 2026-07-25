@@ -228,3 +228,13 @@ describe("replay and persistence", () => {
     expect(await verifyChain(store.events)).toMatchObject({ valid: true });
   });
 });
+
+describe("rejoin", () => {
+  it("is idempotent: a reconnecting participant logs no duplicate join", async () => {
+    const { store, actor } = await seededSession();
+    const before = store.events.length;
+    await actor.join({ id: "alice", displayName: "Alice", role: "driver" });
+    expect(store.events.length).toBe(before);
+    expect(actor.driverId).toBe("alice");
+  });
+});

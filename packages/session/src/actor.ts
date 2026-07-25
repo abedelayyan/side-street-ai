@@ -66,7 +66,11 @@ export class SessionActor {
     });
   }
 
+  /** Idempotent: a reconnect by an existing participant logs nothing. */
   async join(entry: RosterEntry): Promise<void> {
+    if (this.roster.has(entry.id)) {
+      return;
+    }
     this.roster.set(entry.id, entry);
     await this.append(entry.id, {
       type: "participant_joined",

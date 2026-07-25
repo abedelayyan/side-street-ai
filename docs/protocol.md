@@ -1,9 +1,8 @@
 # Side Street session protocol — v0 (draft)
 
-Authoritative spec for the session event log and steering semantics implemented in
-`@side-street/core` and `@side-street/session`. Breaking changes to anything here require an
-RFC issue first (PLAN.md §6). The client↔server WebSocket framing will be added to this
-document when the Durable Object wrapper lands.
+Authoritative spec for the session event log, steering semantics, and transport implemented
+in `@side-street/core`, `@side-street/session`, and `@side-street/session-do`. Breaking
+changes to anything here require an RFC issue first (PLAN.md §6).
 
 ## Event envelope
 
@@ -78,6 +77,50 @@ A late joiner or reconnecting client requests events from a `seq` offset and rec
 ordered tail, then live events. Clients can verify the tail's chain by supplying the hash of
 the event preceding the offset. Checkpoint-plus-tail compaction (Phase 2) will bound replay
 size; the `checkpoint` event type reserves the hook.
+
+## Transport (Durable Object wire protocol)
+
+Each session lives at `/session/:id` on the Worker; the id maps to one Durable Object.
+Three surfaces:
+
+### `GET /session/:id/ws` — viewer socket (WebSocket upgrade)
+
+Join parameters (query): `participantId`, `displayName`, `role`. **v0 trusts these
+parameters; authenticated identity is a Phase 2 deliverable — do not expose v0 beyond
+development environments.**
+
+Viewer → server frames:
+
+| Frame     | Fields                                           | Meaning                    |
+| --------- | ------------------------------------------------ | -------------------------- |
+| `steer`   | `id`, `text`, `delivery: "queue" \| "interrupt"` | Submit a steering message  |
+| `handoff` | `toParticipantId`                                | Hand off / claim the wheel |
+
+Server → viewer frames:
+
+| Frame            | Fields                             | Meaning                                                      |
+| ---------------- | ---------------------------------- | ------------------------------------------------------------ |
+| `welcome`        | `participantId`, `role`, `lastSeq` | Sent once on join; `lastSeq` tells the client what to replay |
+| `event`          | `event` (signed envelope)          | Live fan-out of every appended event                         |
+| `steer_rejected` | `messageId`, `reason`              | Private rejection (sender only; never broadcast)             |
+| `error`          | `message`                          | Malformed frame                                              |
+
+A participant's departure is logged only when their last open socket closes (multi-tab and
+reconnect races keep them present).
+
+### `GET /session/:id/agent` — agent bridge socket (WebSocket upgrade)
+
+Connected by the sandbox-side ACP bridge. Server → bridge frames: `prompt` (attributed
+`messages` to deliver to the agent) and `cancel` (hard-interrupt). Bridge → server frames:
+`agent_event` (a translated event body to append) and `turn_ended` (`stopReason`). Prompt
+and cancel frames emitted while the bridge is disconnected are buffered durably and flushed
+in order on (re)connect.
+
+### `GET /session/:id/events?from=N` — replay
+
+Returns `{ events: [...] }` — the ordered tail with `seq >= N`. A late joiner connects the
+viewer socket, reads `welcome.lastSeq`, fetches the tail it's missing, then applies live
+`event` frames (deduplicating by `seq`).
 
 ## ACP mapping (informative)
 

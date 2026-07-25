@@ -170,7 +170,7 @@ co-steer one debugging session without producing incoherent agent behavior?_
 - [x] Steering v1 engine (`@side-street/core`): Driver/Navigator/Observer authority, attributed intervention queue drained at tool-call boundaries, hard-interrupt with single-cancel semantics, "take the wheel" handoff — unit-tested as a pure state machine
 - [x] Session actor (`@side-street/session`): append-only hash-chained log with fan-out, roster, steering integration, offset replay, snapshot/restore — runtime-agnostic behind storage/broadcast/agent ports
 - [x] `acp-client`: JSON-RPC 2.0 over pluggable transports; `session/prompt` / `session/update` streaming / `session/cancel`; `request_permission` routing (handler failure denies, never allows); update→event translation — tested against an in-process fake agent
-- [ ] `session-do`: Durable Object wrapper binding `@side-street/session` to SQLite + WebSocket Hibernation; WS wire protocol (join/steer/handoff frames) added to `docs/protocol.md`
+- [x] `session-do`: Durable Object wrapper binding `@side-street/session` to SQLite + WebSocket Hibernation; viewer + agent-bridge sockets with durable prompt buffering; WS wire protocol documented in `docs/protocol.md`; tested in workerd via vitest-pool-workers (v0 identity is unauthenticated query params — authentication is a Phase 2 deliverable)
 - [ ] `sandbox`: E2B adapter behind a provider interface; agent boots in a per-session microVM with a cloned repo; ACP bridge connects it to the session actor
 - [ ] `web`: minimal session view — live token stream, tool calls with status, participant list, chat input
 - [ ] Late-joiner replay v1 end-to-end: join mid-session over WS, receive events from offset, land in the live stream (actor-level replay + tail verification are done)

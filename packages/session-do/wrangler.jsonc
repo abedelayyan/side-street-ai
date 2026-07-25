@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "side-street-session",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-08-01",
+  "durable_objects": {
+    "bindings": [{ "name": "SESSIONS", "class_name": "SessionDurableObject" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SessionDurableObject"] }],
+}

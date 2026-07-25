@@ -1,0 +1,25 @@
+{
+  "name": "@side-street/session-do",
+  "version": "0.0.0",
+  "description": "Cloudflare Worker + Durable Object binding the session actor to SQLite and hibernating WebSockets",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src test",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@side-street/core": "workspace:*",
+    "@side-street/session": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20250705.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.24.0"
+  }
+}
