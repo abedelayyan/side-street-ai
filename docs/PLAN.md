@@ -171,9 +171,10 @@ co-steer one debugging session without producing incoherent agent behavior?_
 - [x] Session actor (`@side-street/session`): append-only hash-chained log with fan-out, roster, steering integration, offset replay, snapshot/restore — runtime-agnostic behind storage/broadcast/agent ports
 - [x] `acp-client`: JSON-RPC 2.0 over pluggable transports; `session/prompt` / `session/update` streaming / `session/cancel`; `request_permission` routing (handler failure denies, never allows); update→event translation — tested against an in-process fake agent
 - [x] `session-do`: Durable Object wrapper binding `@side-street/session` to SQLite + WebSocket Hibernation; viewer + agent-bridge sockets with durable prompt buffering; WS wire protocol documented in `docs/protocol.md`; tested in workerd via vitest-pool-workers (v0 identity is unauthenticated query params — authentication is a Phase 2 deliverable)
-- [ ] `sandbox`: E2B adapter behind a provider interface; agent boots in a per-session microVM with a cloned repo; ACP bridge connects it to the session actor
-- [ ] `web`: minimal session view — live token stream, tool calls with status, participant list, chat input
-- [ ] Late-joiner replay v1 end-to-end: join mid-session over WS, receive events from offset, land in the live stream (actor-level replay + tail verification are done)
+- [x] `sandbox` agent bridge: connects an ACP agent to the session's `/agent` socket; realizes boundary injection as cancel-then-reprompt with the internal cancel invisible to the session; hard-interrupt vs injection disambiguated; suggestion attribution in prompt formatting — tested against both a scripted agent and a real `AcpClient`+`FakeAgent` pair
+- [ ] `sandbox` E2B adapter: boot a per-session microVM with a cloned repo behind the `SandboxProvider` interface (requires E2B account/keys — the interface is in place)
+- [x] `web`: join screen (name/role/session), live timeline (merged agent chunks, tool-call status, attributed human messages, wheel changes), steer/interrupt/take-the-wheel controls, rejection notices
+- [x] Late-joiner replay v1: `SessionClient` connects, replays from its cursor, buffers live frames during replay, deduplicates by `seq`, and resumes reconnects with only the delta — tested; the in-browser run happens with the exit benchmark
 
 **Exit benchmark:** two humans in different browsers co-steer one real debugging session
 (seeded bug in a sample repo) to a fix, with the full attributed timeline visible.

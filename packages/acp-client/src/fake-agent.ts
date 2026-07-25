@@ -6,7 +6,7 @@
  * stopReason "cancelled", matching the ACP contract.
  */
 
-import type { Transport } from "../src/transport.js";
+import type { Transport } from "./transport.js";
 
 interface Frame {
   jsonrpc: "2.0";

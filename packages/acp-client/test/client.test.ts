@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AcpClient } from "../src/client.js";
 import type { PermissionOutcome, SessionUpdate } from "../src/protocol.js";
 import { createTransportPair } from "../src/transport.js";
-import { FakeAgent } from "./fake-agent.js";
+import { FakeAgent } from "../src/fake-agent.js";
 
 interface Recorded {
   updates: SessionUpdate[];

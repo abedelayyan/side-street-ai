@@ -14,3 +14,4 @@ export {
 } from "./protocol.js";
 export { toEventBody, turnEndedBody } from "./to-event-body.js";
 export { createTransportPair, type Transport } from "./transport.js";
+export { FakeAgent } from "./fake-agent.js";

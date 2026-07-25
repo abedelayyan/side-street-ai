@@ -29,3 +29,17 @@ export {
   type SubmitResult,
   type TurnPhase,
 } from "./steering.js";
+export {
+  agentFrameSchema,
+  agentServerFrameSchema,
+  joinParamsSchema,
+  queuedMessageSchema,
+  replayResponseSchema,
+  serverFrameSchema,
+  viewerFrameSchema,
+  type AgentFrame,
+  type AgentServerFrame,
+  type JoinParams,
+  type ServerFrame,
+  type ViewerFrame,
+} from "./wire.js";

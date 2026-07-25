@@ -1,0 +1,32 @@
+{
+  "name": "@side-street/sandbox",
+  "version": "0.0.0",
+  "description": "Sandbox provider interface and the agent bridge connecting an ACP agent to a session",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src test"
+  },
+  "dependencies": {
+    "@side-street/acp-client": "workspace:*",
+    "@side-street/core": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.0"
+  }
+}

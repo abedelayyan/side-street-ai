@@ -6,7 +6,15 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
-import { signedEventSchema, type SignedEvent } from "@side-street/core";
+import {
+  agentFrameSchema,
+  joinParamsSchema,
+  signedEventSchema,
+  viewerFrameSchema,
+  type AgentServerFrame,
+  type ServerFrame,
+  type SignedEvent,
+} from "@side-street/core";
 import {
   SessionActor,
   type AgentPort,
@@ -15,13 +23,6 @@ import {
   type PrivateMessage,
   type SessionActorSnapshot,
 } from "@side-street/session";
-import {
-  agentFrameSchema,
-  joinParamsSchema,
-  viewerFrameSchema,
-  type AgentServerFrame,
-  type ServerFrame,
-} from "./messages.js";
 
 export interface Env {
   SESSIONS: DurableObjectNamespace<SessionDurableObject>;
