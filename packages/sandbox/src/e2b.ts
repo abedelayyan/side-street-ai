@@ -19,7 +19,7 @@ export const SANDBOX_REPO_PATH = "/home/user/repo";
 export interface E2bProviderOptions {
   /** E2B template id; the default base image when omitted. */
   template?: string;
-  /** Wall-clock lifetime before E2B reclaims the sandbox. */
+  /** Default wall-clock lifetime; a launch's own `ttlMs` overrides it. */
   timeoutMs?: number;
 }
 
@@ -29,10 +29,13 @@ export class E2bProvider implements SandboxProvider {
   constructor(private readonly options: E2bProviderOptions = {}) {}
 
   async launch(options: SandboxLaunchOptions): Promise<SandboxHandle> {
+    // The credential deadline wins: E2B reclaims the microVM at `timeoutMs`
+    // whether or not anything is still around to stop it.
+    const timeoutMs = options.ttlMs ?? this.options.timeoutMs;
     const createOpts = {
       envs: { ...options.env },
       metadata: { sideStreetSessionId: options.sessionId },
-      ...(this.options.timeoutMs !== undefined ? { timeoutMs: this.options.timeoutMs } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     };
     const sandbox =
       this.options.template !== undefined

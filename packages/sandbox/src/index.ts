@@ -6,6 +6,16 @@ export {
   type SessionSocket,
 } from "./bridge.js";
 export {
+  DEFAULT_CREDENTIAL_TTL_MS,
+  launchSessionSandbox,
+  staticCredentialIssuer,
+  type CredentialGrant,
+  type CredentialIssuer,
+  type CredentialRequest,
+  type SessionSandbox,
+  type SessionSandboxOptions,
+} from "./credentials.js";
+export {
   type SandboxHandle,
   type SandboxLaunchOptions,
   type SandboxProvider,

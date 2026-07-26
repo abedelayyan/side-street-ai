@@ -15,6 +15,12 @@ export interface SandboxLaunchOptions {
   repoUrl: string;
   /** Environment injected at boot; never logged, never prompted. */
   env: Readonly<Record<string, string>>;
+  /**
+   * Hard wall-clock lifetime. The provider must not keep the sandbox alive
+   * past it — that deadline is what expires the injected credentials when the
+   * process that launched the sandbox is no longer around to stop it.
+   */
+  ttlMs?: number;
 }
 
 export type SandboxStatus = "starting" | "running" | "paused" | "stopped";
