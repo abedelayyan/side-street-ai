@@ -61,6 +61,25 @@ function harness() {
   return { socket, agent, errors, bridge };
 }
 
+describe("AgentBridge secret declaration", () => {
+  it("declares injected credentials as its very first frame", () => {
+    const socket = new FakeSocket();
+    new AgentBridge({
+      socket,
+      agent: new ScriptedAgent(),
+      acpSessionId: "acp-1",
+      secrets: ["t0ken"],
+    });
+    // First, so no agent output can be broadcast before the DO knows the value.
+    expect(socket.sent[0]).toEqual({ type: "register_secrets", values: ["t0ken"] });
+  });
+
+  it("says nothing when no credentials were injected", () => {
+    const { socket } = harness();
+    expect(socket.sent).toEqual([]);
+  });
+});
+
 describe("formatPrompt", () => {
   it("keeps driver text verbatim and labels suggestions with their author", () => {
     expect(

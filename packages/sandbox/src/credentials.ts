@@ -60,6 +60,22 @@ export function staticCredentialIssuer(
 /** One hour: long enough for a debugging session, short enough to matter. */
 export const DEFAULT_CREDENTIAL_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * Boot-env variable naming the injected credential keys, comma-separated. It
+ * is the sandbox side's only way to know which of its values are secret —
+ * guessing by key name ("*_TOKEN") would both miss and over-match — so the
+ * bridge resolves it and declares those values to the redaction pass.
+ */
+export const SECRET_ENV_MANIFEST = "SIDE_STREET_SECRET_ENV";
+
+/** Resolve the manifest against an environment. Unset names are skipped. */
+export function secretsFromEnv(env: Readonly<Record<string, string | undefined>>): string[] {
+  return (env[SECRET_ENV_MANIFEST] ?? "")
+    .split(",")
+    .map((name) => env[name.trim()])
+    .filter((value): value is string => value !== undefined && value !== "");
+}
+
 export interface SessionSandboxOptions {
   provider: SandboxProvider;
   issuer: CredentialIssuer;
@@ -100,7 +116,11 @@ export async function launchSessionSandbox(
     handle = await options.provider.launch({
       sessionId: options.sessionId,
       repoUrl: options.repoUrl,
-      env: { ...options.env, ...grant.env },
+      env: {
+        ...options.env,
+        ...grant.env,
+        [SECRET_ENV_MANIFEST]: Object.keys(grant.env).join(","),
+      },
       ttlMs: remainingMs,
     });
   } catch (error) {

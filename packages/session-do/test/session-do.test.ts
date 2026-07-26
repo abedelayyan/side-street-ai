@@ -183,6 +183,33 @@ describe("agent bridge", () => {
     expect(text).not.toContain(awsKey);
   });
 
+  it("redacts a declared session credential from broadcasts and from replay", async () => {
+    const sessionId = freshSession();
+    // A credential no built-in pattern would ever match: without the
+    // declaration it sails straight through to the Observer.
+    const credential = "s3ssion-scoped-value";
+    const agent = await connect(`/session/${sessionId}/agent`);
+    const observer = await connect(viewerPath(sessionId, "obs", "observer"));
+    await observer.waitFor((f) => f["type"] === "welcome");
+
+    agent.ws.send(JSON.stringify({ type: "register_secrets", values: [credential] }));
+    agent.ws.send(
+      JSON.stringify({
+        type: "agent_event",
+        body: { type: "agent_message_chunk", payload: { text: `exporting ${credential} now` } },
+      }),
+    );
+
+    const evt = await observer.waitFor(isEventOf("agent_message_chunk"));
+    const text = ((evt["event"] as SignedEvent).body.payload as { text: string }).text;
+    expect(text).toBe("exporting [redacted:secret] now");
+
+    // Replay is an outbound path too — the same secret must not leak there,
+    // and the declaration itself must never have been logged as an event.
+    const replay = await SELF.fetch(`${BASE}/session/${sessionId}/events?from=0`);
+    expect(await replay.text()).not.toContain(credential);
+  });
+
   it("buffers prompts while the agent bridge is down and flushes on connect", async () => {
     const sessionId = freshSession();
     const alice = await connect(viewerPath(sessionId, "alice", "driver"));

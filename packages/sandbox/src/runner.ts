@@ -8,6 +8,7 @@
 
 import { AcpClient, type PermissionOutcome } from "@side-street/acp-client";
 import { AgentBridge, type SessionSocket } from "./bridge.js";
+import { secretsFromEnv } from "./credentials.js";
 import { spawnAgent } from "./stdio.js";
 
 /** `http(s)://host/session/:id` → `ws(s)://host/session/:id/agent`. */
@@ -111,13 +112,18 @@ export async function main(argv: readonly string[]): Promise<void> {
     process.exit(1);
   });
 
+  // The credentials this sandbox booted with, declared to the session so the
+  // redaction pass strips them from anything the agent echoes.
+  const secrets = secretsFromEnv(process.env);
   bridge = new AgentBridge({
     socket: sessionSocketFromWebSocket(ws),
     agent: client,
     acpSessionId,
+    secrets,
     onError(error): void {
       console.error(`bridge: ${error.message}`);
     },
   });
+  console.error(`declared ${secrets.length} session credential(s) to the redaction pass`);
   console.error(`bridge connected to ${wsUrl}`);
 }

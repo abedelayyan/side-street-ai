@@ -75,6 +75,13 @@ export const agentFrameSchema = z.discriminatedUnion("type", [
     title: z.string().min(1),
     options: z.array(permissionOptionSchema).min(1),
   }),
+  // The credentials injected into the sandbox, declared so the redaction pass
+  // can strip them by exact value. These never enter an event or a prompt;
+  // the bound keeps one frame from ballooning the redaction set.
+  z.object({
+    type: z.literal("register_secrets"),
+    values: z.array(z.string().min(1)).min(1).max(64),
+  }),
 ]);
 export type AgentFrame = z.infer<typeof agentFrameSchema>;
 

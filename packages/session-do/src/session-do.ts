@@ -35,6 +35,7 @@ type Attachment = { kind: "viewer"; participantId: string; role: Role } | { kind
 
 const SNAPSHOT_KEY = "actor-snapshot";
 const OUTBOX_KEY = "agent-outbox";
+const SECRETS_KEY = "known-secrets";
 
 class SqliteEventStore implements EventStore {
   constructor(private readonly sql: SqlStorage) {
@@ -104,9 +105,10 @@ export class SessionDurableObject extends DurableObject<Env> {
   /**
    * Redaction applied to every outbound event, per recipient role. Default
    * policy redacts secrets for all roles (the Observer floor, applied to
-   * everyone). `knownSecrets` stays empty until credential injection lands.
+   * everyone). `knownSecrets` holds the credentials the sandbox declared on
+   * connect — see `registerSecrets`.
    */
-  private readonly redactionConfig: RedactionConfig = {};
+  private redactionConfig: RedactionConfig = {};
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -114,6 +116,10 @@ export class SessionDurableObject extends DurableObject<Env> {
       this.store = new SqliteEventStore(ctx.storage.sql);
       const snapshot = await ctx.storage.get<SessionActorSnapshot>(SNAPSHOT_KEY);
       this.outbox = (await ctx.storage.get<AgentServerFrame[]>(OUTBOX_KEY)) ?? [];
+      const knownSecrets = await ctx.storage.get<string[]>(SECRETS_KEY);
+      if (knownSecrets !== undefined) {
+        this.redactionConfig = { knownSecrets };
+      }
       const broadcaster: Broadcaster = {
         broadcast: (event) => this.broadcastEvent(event),
         sendTo: (participantId, message) => this.sendPrivate(participantId, message),
@@ -142,7 +148,15 @@ export class SessionDurableObject extends DurableObject<Env> {
       if (!Number.isInteger(fromSeq) || fromSeq < 0) {
         return Response.json({ error: "invalid 'from' offset" }, { status: 400, headers: cors });
       }
-      return Response.json({ events: await this.actor.replayFrom(fromSeq) }, { headers: cors });
+      // Replay is an outbound path too, so it gets the same redaction pass as
+      // the broadcast path. The endpoint carries no authenticated identity, so
+      // it gets the Observer floor — the strictest view — whoever asks. A
+      // per-role replay view needs the Phase 2 authentication deliverable
+      // first; asking politely in a query param is not identity.
+      const events = (await this.actor.replayFrom(fromSeq)).map((event) =>
+        redactEventForRole(event, "observer", this.redactionConfig),
+      );
+      return Response.json({ events }, { headers: cors });
     }
     if (url.pathname.endsWith("/verify")) {
       // Tamper-evidence surface: re-verifies the full chain server-side so
@@ -218,6 +232,12 @@ export class SessionDurableObject extends DurableObject<Env> {
         this.send(ws, { type: "error", message: "invalid agent frame" });
         return;
       }
+      if (frame.data.type === "register_secrets") {
+        // Deliberately not an event and not a broadcast: secrets stay out of
+        // the log entirely (PLAN.md invariant 4).
+        await this.registerSecrets(frame.data.values);
+        return;
+      }
       if (frame.data.type === "agent_event") {
         await this.actor.onAgentEvent(frame.data.body);
       } else if (frame.data.type === "turn_ended") {
@@ -291,11 +311,31 @@ export class SessionDurableObject extends DurableObject<Env> {
   }
 
   /**
+   * Record the credentials the sandbox was booted with, so the redaction pass
+   * can strip them by exact value. They are stored durably — hibernation must
+   * not lose them, because the leak is an unredacted broadcast — but never
+   * appended to the log and never sent to a viewer. They outlive the grant on
+   * purpose: a credential the agent echoes after expiry is still a secret in
+   * front of everyone watching.
+   */
+  private async registerSecrets(values: readonly string[]): Promise<void> {
+    const known = new Set(this.redactionConfig.knownSecrets ?? []);
+    const before = known.size;
+    for (const value of values) {
+      known.add(value);
+    }
+    if (known.size === before) {
+      return;
+    }
+    const knownSecrets = [...known];
+    this.redactionConfig = { ...this.redactionConfig, knownSecrets };
+    await this.ctx.storage.put(SECRETS_KEY, knownSecrets);
+  }
+
+  /**
    * Fan out an event, redacted per the recipient's role BEFORE it leaves the
    * DO (PLAN.md invariant 5). Redaction is memoized per role — at most three
-   * distinct payloads regardless of viewer count. Known session secrets will
-   * feed `redactionConfig` once credential injection lands (Phase 2); pattern
-   * redaction protects the log until then.
+   * distinct payloads regardless of viewer count.
    */
   private broadcastEvent(event: SignedEvent): void {
     const payloadByRole = new Map<Role, string>();
