@@ -144,16 +144,25 @@ export class SessionDurableObject extends DurableObject<Env> {
       // WebSockets are exempt from CORS but this endpoint is not. Wide open
       // matches v0's unauthenticated access model — revisit with Phase 2 auth.
       const cors = { "Access-Control-Allow-Origin": "*" };
-      const fromSeq = Number(url.searchParams.get("from") ?? "0");
-      if (!Number.isInteger(fromSeq) || fromSeq < 0) {
-        return Response.json({ error: "invalid 'from' offset" }, { status: 400, headers: cors });
+      const from = url.searchParams.get("from") ?? "0";
+      let history: SignedEvent[];
+      if (from === "checkpoint") {
+        // A viewer with no history takes the compacted replay: the newest
+        // checkpoint (which carries the state before it) plus the tail.
+        history = await this.actor.replayFromCheckpoint();
+      } else {
+        const fromSeq = Number(from);
+        if (!Number.isInteger(fromSeq) || fromSeq < 0) {
+          return Response.json({ error: "invalid 'from' offset" }, { status: 400, headers: cors });
+        }
+        history = await this.actor.replayFrom(fromSeq);
       }
       // Replay is an outbound path too, so it gets the same redaction pass as
       // the broadcast path. The endpoint carries no authenticated identity, so
       // it gets the Observer floor — the strictest view — whoever asks. A
       // per-role replay view needs the Phase 2 authentication deliverable
       // first; asking politely in a query param is not identity.
-      const events = (await this.actor.replayFrom(fromSeq)).map((event) =>
+      const events = history.map((event) =>
         redactEventForRole(event, "observer", this.redactionConfig),
       );
       return Response.json({ events }, { headers: cors });

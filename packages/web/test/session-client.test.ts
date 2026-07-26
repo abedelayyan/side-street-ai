@@ -94,7 +94,8 @@ describe("SessionClient", () => {
     const h = harness();
     const log = await makeLog(3);
     h.socket.receive({ type: "welcome", participantId: "alice", role: "driver", lastSeq: 2 });
-    expect(h.fetches).toEqual(["http://worker.test/session/s1/events?from=0"]);
+    // No cursor yet: ask for the compacted replay, not the whole log.
+    expect(h.fetches).toEqual(["http://worker.test/session/s1/events?from=checkpoint"]);
     h.resolveReplay(log);
     await flush();
     expect(h.received.map((e) => e.seq)).toEqual([0, 1, 2]);

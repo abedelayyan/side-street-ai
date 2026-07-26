@@ -39,7 +39,25 @@ describe("eventBodySchema", () => {
         payload: { requestId: "r1", outcome: { kind: "selected", optionId: "allow" } },
       },
       { type: "turn_ended", payload: { stopReason: "cancelled" } },
-      { type: "checkpoint", payload: { summary: "post-fix snapshot", snapshotRef: "r2://snap/1" } },
+      {
+        type: "checkpoint",
+        payload: {
+          summary: "100 earlier events (seq 0–99)",
+          roster: [{ participantId: "p1", displayName: "Alice", role: "driver" }],
+          driverId: "p1",
+          pendingPermissions: [],
+          snapshotRef: "r2://snap/1",
+        },
+      },
+      {
+        type: "checkpoint",
+        payload: {
+          summary: "100 earlier events (seq 0–99)",
+          roster: [],
+          driverId: null,
+          pendingPermissions: [],
+        },
+      },
     ];
     for (const body of bodies) {
       expect(eventBodySchema.safeParse(body).success, JSON.stringify(body)).toBe(true);

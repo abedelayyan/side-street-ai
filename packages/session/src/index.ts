@@ -1,4 +1,5 @@
 export {
+  CHECKPOINT_EVERY,
   SessionActor,
   type PermissionRequest,
   type RosterEntry,

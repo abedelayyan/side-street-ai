@@ -29,21 +29,21 @@ position. A log tail can be verified independently given the hash of the event p
 
 ## Event types
 
-| Type                  | Author        | Payload (summary)                                            |
-| --------------------- | ------------- | ------------------------------------------------------------ |
-| `session_started`     | system        | `sessionId`, `agent`, `sandboxProvider`                      |
-| `participant_joined`  | the joiner    | `participantId`, `displayName`, `role`                       |
-| `participant_left`    | the leaver    | `participantId`                                              |
-| `role_changed`        | actor causing | `participantId`, new `role`                                  |
-| `control_handoff`     | requester     | `fromParticipantId`, `toParticipantId`                       |
-| `human_message`       | the human     | `text`, `delivery: "queue" \| "interrupt"`                   |
-| `agent_message_chunk` | agent         | `text` (token-level streaming)                               |
-| `tool_call`           | agent         | `toolCallId`, `title`, `status`                              |
-| `tool_call_update`    | agent         | `toolCallId`, `status`, optional `output`                    |
-| `permission_request`  | agent         | `requestId`, `toolCallId`, `title`, `options[]`              |
-| `permission_decision` | the Driver    | `requestId`, `outcome` (selected optionId or cancelled)      |
-| `turn_ended`          | agent         | `stopReason: end_turn \| max_tokens \| refusal \| cancelled` |
-| `checkpoint`          | system        | `summary`, optional `snapshotRef`                            |
+| Type                  | Author        | Payload (summary)                                                                 |
+| --------------------- | ------------- | --------------------------------------------------------------------------------- |
+| `session_started`     | system        | `sessionId`, `agent`, `sandboxProvider`                                           |
+| `participant_joined`  | the joiner    | `participantId`, `displayName`, `role`                                            |
+| `participant_left`    | the leaver    | `participantId`                                                                   |
+| `role_changed`        | actor causing | `participantId`, new `role`                                                       |
+| `control_handoff`     | requester     | `fromParticipantId`, `toParticipantId`                                            |
+| `human_message`       | the human     | `text`, `delivery: "queue" \| "interrupt"`                                        |
+| `agent_message_chunk` | agent         | `text` (token-level streaming)                                                    |
+| `tool_call`           | agent         | `toolCallId`, `title`, `status`                                                   |
+| `tool_call_update`    | agent         | `toolCallId`, `status`, optional `output`                                         |
+| `permission_request`  | agent         | `requestId`, `toolCallId`, `title`, `options[]`                                   |
+| `permission_decision` | the Driver    | `requestId`, `outcome` (selected optionId or cancelled)                           |
+| `turn_ended`          | agent         | `stopReason: end_turn \| max_tokens \| refusal \| cancelled`                      |
+| `checkpoint`          | system        | `summary`, `roster[]`, `driverId`, `pendingPermissions[]`, optional `snapshotRef` |
 
 Tool-call statuses: `pending`, `in_progress`, `completed`, `failed`, `cancelled`.
 
@@ -75,8 +75,17 @@ Roles: **Driver** (steers, interrupts, approves tools — at most one holds the 
 
 A late joiner or reconnecting client requests events from a `seq` offset and receives the
 ordered tail, then live events. Clients can verify the tail's chain by supplying the hash of
-the event preceding the offset. Checkpoint-plus-tail compaction (Phase 2) will bound replay
-size; the `checkpoint` event type reserves the hook.
+the event preceding the offset.
+
+**Compaction.** Every 100 events the session appends a `checkpoint`: the roster, the current
+Driver, and the permission requests the agent is still blocked on — the state a viewer would
+otherwise rebuild by replaying everything before it. A client with no history asks for
+`from=checkpoint` and gets the newest checkpoint plus the tail; a reconnecting client has a
+cursor and asks for the exact delta instead. The state travels **in-band**, as a normal
+chained event, so a compacted replay is exactly as tamper-evident as a full one — the log
+itself is never compacted, only what a client has to read. `checkpoint.summary` is generated
+from counts alone and never interpolates participant-supplied text, so it can be rendered as
+a system line without laundering an injected string into one.
 
 ## Transport (Durable Object wire protocol)
 
@@ -163,6 +172,10 @@ auditor can check the log's integrity without downloading it.
 Returns `{ events: [...] }` — the ordered tail with `seq >= N`. A late joiner connects the
 viewer socket, reads `welcome.lastSeq`, fetches the tail it's missing, then applies live
 `event` frames (deduplicating by `seq`).
+
+`from=checkpoint` returns the newest `checkpoint` event and everything after it (the whole
+log until the first checkpoint is written). Any other non-integer or negative `from` is a
+`400`.
 
 Replay is an outbound path, so it runs the same redaction pass. The endpoint carries no
 authenticated identity, so it returns the Observer floor — the strictest view — to whoever

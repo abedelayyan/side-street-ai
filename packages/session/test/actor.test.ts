@@ -5,7 +5,7 @@ import {
   type QueuedMessage,
   type SignedEvent,
 } from "@side-street/core";
-import { SessionActor, type PermissionRequest } from "../src/actor.js";
+import { CHECKPOINT_EVERY, SessionActor, type PermissionRequest } from "../src/actor.js";
 import type { PrivateMessage } from "../src/ports.js";
 
 class InMemoryStore {
@@ -327,5 +327,72 @@ describe("rejoin", () => {
     await actor.join({ id: "alice", displayName: "Alice", role: "driver" });
     expect(store.events.length).toBe(before);
     expect(actor.driverId).toBe("alice");
+  });
+});
+
+describe("checkpointing", () => {
+  /** Chatter until `seq` reaches at least `throughSeq`. */
+  async function fill(actor: SessionActor, throughSeq: number): Promise<void> {
+    for (let i = 0; i <= throughSeq; i++) {
+      await actor.onAgentEvent({ type: "agent_message_chunk", payload: { text: `${i}` } });
+    }
+  }
+
+  it("writes a checkpoint every CHECKPOINT_EVERY events, carrying derived state", async () => {
+    const { store, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await fill(actor, CHECKPOINT_EVERY);
+
+    const checkpoints = store.events.filter((e) => e.body.type === "checkpoint");
+    expect(checkpoints).toHaveLength(1);
+    const checkpoint = checkpoints[0]!;
+    expect(checkpoint.seq).toBe(CHECKPOINT_EVERY);
+    expect(checkpoint.authorId).toBe("system");
+    expect(checkpoint.body).toEqual({
+      type: "checkpoint",
+      payload: {
+        summary: `${CHECKPOINT_EVERY} earlier events (seq 0–${CHECKPOINT_EVERY - 1})`,
+        roster: [
+          { participantId: "alice", displayName: "Alice", role: "driver" },
+          { participantId: "bob", displayName: "Bob", role: "navigator" },
+          { participantId: "carol", displayName: "Carol", role: "observer" },
+        ],
+        driverId: "alice",
+        pendingPermissions: [REQUEST],
+      },
+    });
+    expect(await verifyChain(store.events)).toEqual({ valid: true, length: store.events.length });
+  });
+
+  it("never checkpoints a checkpoint: the interval measures from the last one", async () => {
+    const { store, actor } = await seededSession();
+    await fill(actor, CHECKPOINT_EVERY * 2);
+
+    const seqs = store.events.filter((e) => e.body.type === "checkpoint").map((e) => e.seq);
+    expect(seqs).toEqual([CHECKPOINT_EVERY, CHECKPOINT_EVERY * 2 + 1]);
+  });
+
+  it("replays from the newest checkpoint, and from the head until there is one", async () => {
+    const { store, actor } = await seededSession();
+    expect((await actor.replayFromCheckpoint()).map((e) => e.seq)).toEqual(
+      store.events.map((e) => e.seq),
+    );
+
+    await fill(actor, CHECKPOINT_EVERY);
+    const compacted = await actor.replayFromCheckpoint();
+    expect(compacted[0]?.seq).toBe(CHECKPOINT_EVERY);
+    expect(compacted[0]?.body.type).toBe("checkpoint");
+    expect(compacted.at(-1)).toEqual(store.events.at(-1));
+    expect(compacted.length).toBeLessThan(store.events.length);
+  });
+
+  it("resumes the interval across a snapshot restore", async () => {
+    const { store, broadcaster, agent, actor } = await seededSession();
+    await fill(actor, CHECKPOINT_EVERY);
+
+    const revived = new SessionActor({ store, broadcaster, agent, now: () => 100 }, actor.snapshot);
+    await revived.onAgentEvent({ type: "agent_message_chunk", payload: { text: "after" } });
+    expect(store.events.filter((e) => e.body.type === "checkpoint")).toHaveLength(1);
+    expect((await revived.replayFromCheckpoint())[0]?.seq).toBe(CHECKPOINT_EVERY);
   });
 });

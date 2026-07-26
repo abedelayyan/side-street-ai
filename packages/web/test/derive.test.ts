@@ -137,4 +137,73 @@ describe("deriveSession", () => {
     expect(afterDecision.pendingPermissions).toEqual([]); // no longer pending
     expect(afterDecision.timeline.at(-1)).toMatchObject({ text: "🔓 tool approved (allow)" });
   });
+  it("restores state from a checkpoint the stream opens with", async () => {
+    const events = await log([
+      {
+        authorId: "system",
+        body: {
+          type: "checkpoint",
+          payload: {
+            summary: "100 earlier events (seq 0–99)",
+            roster: [
+              { participantId: "alice", displayName: "Alice", role: "driver" },
+              { participantId: "bob", displayName: "Bob", role: "observer" },
+            ],
+            driverId: "alice",
+            pendingPermissions: [
+              {
+                requestId: "perm-1",
+                toolCallId: "tc-1",
+                title: "Run rm -rf build",
+                options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+              },
+            ],
+          },
+        },
+      },
+      {
+        authorId: "alice",
+        body: { type: "human_message", payload: { text: "carry on", delivery: "queue" } },
+      },
+    ]);
+    const derived = deriveSession(events);
+    // The elided history is gone, but everything it determined survives.
+    expect(derived.roster.map((p) => p.displayName)).toEqual(["Alice", "Bob"]);
+    expect(derived.driverId).toBe("alice");
+    expect(derived.pendingPermissions.map((p) => p.requestId)).toEqual(["perm-1"]);
+    expect(derived.timeline[0]).toMatchObject({
+      kind: "system",
+      text: "⋯ 100 earlier events (seq 0–99)",
+    });
+    // Attribution still resolves for events after the gap.
+    expect(derived.timeline[1]).toMatchObject({ kind: "human", authorId: "alice", role: "driver" });
+  });
+
+  it("does not mark a gap for a checkpoint reached live", async () => {
+    const events = await log([
+      {
+        authorId: "alice",
+        body: {
+          type: "participant_joined",
+          payload: { participantId: "alice", displayName: "Alice", role: "driver" },
+        },
+      },
+      {
+        authorId: "system",
+        body: {
+          type: "checkpoint",
+          payload: {
+            summary: "100 earlier events (seq 0–99)",
+            roster: [{ participantId: "alice", displayName: "Alice", role: "driver" }],
+            driverId: "alice",
+            pendingPermissions: [],
+          },
+        },
+      },
+    ]);
+    const { timeline, roster } = deriveSession(events);
+    expect(timeline.map((t) => t.kind)).toEqual(["system"]);
+    expect(timeline[0]).toMatchObject({ text: "Alice joined as driver" });
+    expect(roster).toHaveLength(1);
+  });
 });

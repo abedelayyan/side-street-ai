@@ -31,6 +31,19 @@ export const permissionOptionSchema = z.object({
 });
 export type PermissionOption = z.infer<typeof permissionOptionSchema>;
 
+const rosterEntrySchema = z.object({
+  participantId: z.string().min(1),
+  displayName: z.string().min(1),
+  role: roleSchema,
+});
+
+const permissionRequestPayloadSchema = z.object({
+  requestId: z.string().min(1),
+  toolCallId: z.string().min(1),
+  title: z.string().min(1),
+  options: z.array(permissionOptionSchema).min(1),
+});
+
 const agentMessageChunkSchema = z.object({
   type: z.literal("agent_message_chunk"),
   payload: z.object({ text: z.string() }),
@@ -81,14 +94,7 @@ export const eventBodySchema = z.discriminatedUnion("type", [
       sandboxProvider: z.string().min(1),
     }),
   }),
-  z.object({
-    type: z.literal("participant_joined"),
-    payload: z.object({
-      participantId: z.string().min(1),
-      displayName: z.string().min(1),
-      role: roleSchema,
-    }),
-  }),
+  z.object({ type: z.literal("participant_joined"), payload: rosterEntrySchema }),
   z.object({
     type: z.literal("participant_left"),
     payload: z.object({ participantId: z.string().min(1) }),
@@ -112,15 +118,7 @@ export const eventBodySchema = z.discriminatedUnion("type", [
       delivery: z.enum(["queue", "interrupt"]),
     }),
   }),
-  z.object({
-    type: z.literal("permission_request"),
-    payload: z.object({
-      requestId: z.string().min(1),
-      toolCallId: z.string().min(1),
-      title: z.string().min(1),
-      options: z.array(permissionOptionSchema).min(1),
-    }),
-  }),
+  z.object({ type: z.literal("permission_request"), payload: permissionRequestPayloadSchema }),
   z.object({
     type: z.literal("permission_decision"),
     payload: z.object({
@@ -134,10 +132,22 @@ export const eventBodySchema = z.discriminatedUnion("type", [
       stopReason: z.enum(["end_turn", "max_tokens", "refusal", "cancelled"]),
     }),
   }),
+  /**
+   * A periodic snapshot of derived state, written into the log so a late
+   * joiner can start here instead of replaying everything before it. The
+   * state is carried in-band rather than fetched out of band precisely
+   * because the log is hash-chained: a compacted replay is exactly as
+   * tamper-evident as a full one.
+   */
   z.object({
     type: z.literal("checkpoint"),
     payload: z.object({
+      /** Human-readable gap marker. Never interpolates participant-supplied text. */
       summary: z.string().min(1),
+      roster: z.array(rosterEntrySchema),
+      driverId: z.string().min(1).nullable(),
+      /** Requests the agent is still blocked on, so a late joiner can answer them. */
+      pendingPermissions: z.array(permissionRequestPayloadSchema),
       /** Reference to an externally stored snapshot (e.g. R2 key), if any. */
       snapshotRef: z.string().optional(),
     }),

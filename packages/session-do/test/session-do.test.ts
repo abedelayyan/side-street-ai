@@ -1,6 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { verifyChain, type SignedEvent } from "@side-street/core";
+import { CHECKPOINT_EVERY } from "@side-street/session";
 import { BASE, connect, freshSession, isEventOf, viewerPath } from "./harness.js";
 
 describe("routing", () => {
@@ -262,5 +263,50 @@ describe("replay", () => {
     const { events: tail } = (await tailResponse.json()) as { events: SignedEvent[] };
     expect(tail).toEqual(events.filter((e) => e.seq >= 2));
     expect(await verifyChain(tail, events[1]!.hash)).toEqual({ valid: true, length: tail.length });
+  });
+  it("compacts a long session: from=checkpoint serves the checkpoint plus the tail", async () => {
+    const sessionId = freshSession();
+    const alice = await connect(viewerPath(sessionId, "alice", "driver"));
+    await alice.waitFor((f) => f["type"] === "welcome");
+
+    // Before the first checkpoint there is nothing to compact to, so a late
+    // joiner still gets the head of the log.
+    const early = await SELF.fetch(`${BASE}/session/${sessionId}/events?from=checkpoint`);
+    const { events: earlyEvents } = (await early.json()) as { events: SignedEvent[] };
+    expect(earlyEvents[0]?.seq).toBe(0);
+
+    const agent = await connect(`/session/${sessionId}/agent`);
+    for (let i = 0; i <= CHECKPOINT_EVERY; i++) {
+      agent.ws.send(
+        JSON.stringify({
+          type: "agent_event",
+          body: { type: "agent_message_chunk", payload: { text: `chunk ${i}` } },
+        }),
+      );
+    }
+    await alice.waitFor(isEventOf("checkpoint"));
+
+    const compactedResponse = await SELF.fetch(
+      `${BASE}/session/${sessionId}/events?from=checkpoint`,
+    );
+    const { events: compacted } = (await compactedResponse.json()) as { events: SignedEvent[] };
+    const fullResponse = await SELF.fetch(`${BASE}/session/${sessionId}/events?from=0`);
+    const { events: full } = (await fullResponse.json()) as { events: SignedEvent[] };
+
+    expect(compacted[0]?.body.type).toBe("checkpoint");
+    expect(compacted.length).toBeLessThan(full.length);
+    expect(compacted).toEqual(full.filter((e) => e.seq >= compacted[0]!.seq));
+    // A compacted replay is still a chain — it just starts later.
+    const priorHash = full.find((e) => e.seq === compacted[0]!.seq - 1)!.hash;
+    expect(await verifyChain(compacted, priorHash)).toEqual({
+      valid: true,
+      length: compacted.length,
+    });
+    // And it carries the state the elided events would have rebuilt.
+    const body = compacted[0]!.body;
+    if (body.type !== "checkpoint") throw new Error("expected a checkpoint");
+    expect(body.payload.roster).toEqual([
+      { participantId: "alice", displayName: "alice", role: "driver" },
+    ]);
   });
 });

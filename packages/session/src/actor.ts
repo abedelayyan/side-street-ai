@@ -18,6 +18,15 @@ import {
 } from "@side-street/core";
 import type { AgentPort, Broadcaster, EventStore } from "./ports.js";
 
+/**
+ * Events between checkpoints. Bounds what a late joiner has to load without
+ * making checkpoints a visible share of the log.
+ * ponytail: a fixed event count, not elapsed time or byte size. If sessions
+ * appear where 100 events is a second for one and a day for another, key it
+ * off the interval that actually hurts.
+ */
+export const CHECKPOINT_EVERY = 100;
+
 export interface RosterEntry {
   id: string;
   displayName: string;
@@ -35,7 +44,9 @@ export interface SessionActorSnapshot {
   steering: SteeringState;
   roster: RosterEntry[];
   /** Permission requests awaiting a Driver decision — survives hibernation. */
-  pendingPermissions: string[];
+  pendingPermissions: PermissionRequest[];
+  /** Seq of the newest checkpoint event, or -1 if none has been written yet. */
+  lastCheckpointSeq: number;
 }
 
 export interface PermissionRequest {
@@ -50,7 +61,8 @@ export type SteerInput = { id: string; text: string; delivery: "queue" | "interr
 export class SessionActor {
   private readonly steering: SteeringController;
   private readonly roster = new Map<string, RosterEntry>();
-  private readonly pendingPermissions: Set<string>;
+  private readonly pendingPermissions: Map<string, PermissionRequest>;
+  private lastCheckpointSeq: number;
 
   constructor(
     private readonly deps: SessionActorDeps,
@@ -60,7 +72,10 @@ export class SessionActor {
     for (const entry of snapshot?.roster ?? []) {
       this.roster.set(entry.id, entry);
     }
-    this.pendingPermissions = new Set(snapshot?.pendingPermissions ?? []);
+    this.pendingPermissions = new Map(
+      (snapshot?.pendingPermissions ?? []).map((request) => [request.requestId, request]),
+    );
+    this.lastCheckpointSeq = snapshot?.lastCheckpointSeq ?? -1;
   }
 
   /** Serializable state for the wrapper to persist alongside the event log. */
@@ -68,7 +83,8 @@ export class SessionActor {
     return {
       steering: this.steering.state,
       roster: [...this.roster.values()],
-      pendingPermissions: [...this.pendingPermissions],
+      pendingPermissions: [...this.pendingPermissions.values()],
+      lastCheckpointSeq: this.lastCheckpointSeq,
     };
   }
 
@@ -179,7 +195,7 @@ export class SessionActor {
    * the load-bearing control against prompt injection).
    */
   async onPermissionRequest(request: PermissionRequest): Promise<void> {
-    this.pendingPermissions.add(request.requestId);
+    this.pendingPermissions.set(request.requestId, request);
     await this.append("agent", {
       type: "permission_request",
       payload: {
@@ -237,6 +253,17 @@ export class SessionActor {
     return this.deps.store.from(fromSeq);
   }
 
+  /**
+   * Compacted replay for a viewer with no history: the newest checkpoint and
+   * everything after it. The checkpoint carries the state its elided
+   * predecessors would have rebuilt, so this is the whole session as far as
+   * the UI is concerned — and it is chained like any other event, so it stays
+   * verifiable. Falls back to the full log until the first checkpoint.
+   */
+  replayFromCheckpoint(): Promise<SignedEvent[]> {
+    return this.replayFrom(Math.max(this.lastCheckpointSeq, 0));
+  }
+
   private applyEffects(effects: SteeringEffect[]): void {
     for (const effect of effects) {
       if (effect.kind === "deliver") {
@@ -249,6 +276,38 @@ export class SessionActor {
   }
 
   private async append(authorId: string, body: EventBody): Promise<void> {
+    const seq = await this.write(authorId, body);
+    if (seq - this.lastCheckpointSeq >= CHECKPOINT_EVERY) {
+      await this.checkpoint(seq);
+    }
+  }
+
+  /**
+   * Fold everything through `throughSeq` into one event. Written via `write`,
+   * not `append`, so a checkpoint can never trigger another checkpoint.
+   */
+  private async checkpoint(throughSeq: number): Promise<void> {
+    const from = this.lastCheckpointSeq + 1;
+    this.lastCheckpointSeq = await this.write("system", {
+      type: "checkpoint",
+      payload: {
+        // Counts only: participant-supplied text (display names, tool titles)
+        // stays in the structured fields, where the UI renders it as data
+        // rather than as a system line.
+        summary: `${throughSeq - from + 1} earlier events (seq ${from}–${throughSeq})`,
+        roster: [...this.roster.values()].map((entry) => ({
+          participantId: entry.id,
+          displayName: entry.displayName,
+          role: entry.role,
+        })),
+        driverId: this.steering.state.driverId,
+        pendingPermissions: [...this.pendingPermissions.values()],
+      },
+    });
+  }
+
+  /** Seal one event into the chain, persist it, fan it out. Returns its seq. */
+  private async write(authorId: string, body: EventBody): Promise<number> {
     const last = await this.deps.store.last();
     const event = await appendEvent(last === undefined ? [] : [last], {
       authorId,
@@ -257,5 +316,6 @@ export class SessionActor {
     });
     await this.deps.store.append(event);
     this.deps.broadcaster.broadcast(event);
+    return event.seq;
   }
 }

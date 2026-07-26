@@ -171,8 +171,32 @@ export function deriveSession(events: readonly SignedEvent[]): DerivedSession {
         timeline.push({ kind: "system", key, text });
         break;
       }
-      case "checkpoint":
+      case "checkpoint": {
+        // The state the elided events would have produced. Re-applying it
+        // mid-stream is a no-op for a viewer who watched them go by.
+        for (const entry of body.payload.roster) {
+          roster.set(entry.participantId, {
+            id: entry.participantId,
+            displayName: entry.displayName,
+            role: entry.role,
+          });
+          roles.set(entry.participantId, entry.role);
+        }
+        driverId = body.payload.driverId;
+        for (const request of body.payload.pendingPermissions) {
+          pendingPermissions.set(request.requestId, {
+            requestId: request.requestId,
+            title: request.title,
+            options: request.options,
+          });
+        }
+        // Mark the gap only when the checkpoint opens the stream — that is
+        // the one case where history is actually missing from the timeline.
+        if (timeline.length === 0) {
+          timeline.push({ kind: "system", key, text: `⋯ ${body.payload.summary}` });
+        }
         break;
+      }
     }
   }
 

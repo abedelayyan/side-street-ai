@@ -148,7 +148,11 @@ export class SessionClient {
     this.setStatus("replaying");
     try {
       const fetchFn = this.options.fetchFn ?? ((url: string) => fetch(url));
-      const url = `${this.options.baseUrl}/session/${this.options.sessionId}/events?from=${this.cursor + 1}`;
+      // No cursor means no history: take the compacted replay (newest
+      // checkpoint + tail) rather than every event ever. A reconnect has a
+      // cursor and takes the exact delta.
+      const from = this.cursor < 0 ? "checkpoint" : String(this.cursor + 1);
+      const url = `${this.options.baseUrl}/session/${this.options.sessionId}/events?from=${from}`;
       const response = await fetchFn(url);
       if (!response.ok) {
         throw new Error("replay request failed");
