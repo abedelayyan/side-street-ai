@@ -123,11 +123,15 @@ export class SessionDurableObject extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.endsWith("/events")) {
+      // The viewer fetches replay cross-origin (the UI is served elsewhere);
+      // WebSockets are exempt from CORS but this endpoint is not. Wide open
+      // matches v0's unauthenticated access model — revisit with Phase 2 auth.
+      const cors = { "Access-Control-Allow-Origin": "*" };
       const fromSeq = Number(url.searchParams.get("from") ?? "0");
       if (!Number.isInteger(fromSeq) || fromSeq < 0) {
-        return Response.json({ error: "invalid 'from' offset" }, { status: 400 });
+        return Response.json({ error: "invalid 'from' offset" }, { status: 400, headers: cors });
       }
-      return Response.json({ events: await this.actor.replayFrom(fromSeq) });
+      return Response.json({ events: await this.actor.replayFrom(fromSeq) }, { headers: cors });
     }
     if (url.pathname.endsWith("/ws")) {
       return this.acceptViewer(request, url);
@@ -154,14 +158,18 @@ export class SessionDurableObject extends DurableObject<Env> {
     server.serializeAttachment({ kind: "viewer", participantId } satisfies Attachment);
 
     await this.ensureStarted();
-    await this.actor.join({ id: participantId, displayName, role });
-    await this.persistState();
+    // Welcome must be the socket's first frame (docs/protocol.md): join()
+    // broadcasts the join event to every viewer including this one, and an
+    // event arriving before welcome advances the client's cursor past the
+    // history it never fetched, silently skipping replay.
     this.send(server, {
       type: "welcome",
       participantId,
       role,
       lastSeq: this.store.lastSeq(),
     });
+    await this.actor.join({ id: participantId, displayName, role });
+    await this.persistState();
     return new Response(null, { status: 101, webSocket: client });
   }
 

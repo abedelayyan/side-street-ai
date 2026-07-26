@@ -76,6 +76,22 @@ describe("routing", () => {
 });
 
 describe("session lifecycle over WebSocket", () => {
+  it("sends welcome as the socket's first frame, before the joiner's own join event", async () => {
+    const sessionId = freshSession();
+    const alice = await connect(viewerPath(sessionId, "alice", "driver"));
+    await alice.waitFor(isEventOf("participant_joined"));
+
+    // A brand-new participant joining an existing session: if its own
+    // participant_joined broadcast lands before welcome, the client's replay
+    // cursor jumps past the history it never fetched (exit-benchmark regression).
+    const bob = await connect(viewerPath(sessionId, "bob", "observer"));
+    const bobJoin = await bob.waitFor(isEventOf("participant_joined"));
+    expect(bob.frames[0]?.["type"]).toBe("welcome");
+    const welcomeLastSeq = (bob.frames[0] as { lastSeq: number }).lastSeq;
+    const joinSeq = (bobJoin as { event: { seq: number } }).event.seq;
+    expect(welcomeLastSeq).toBeLessThan(joinSeq);
+  });
+
   it("welcomes a joiner and streams attributed steering to all viewers", async () => {
     const sessionId = freshSession();
     const alice = await connect(viewerPath(sessionId, "alice", "driver"));
@@ -173,6 +189,9 @@ describe("replay", () => {
     await alice.waitFor(isEventOf("human_message"));
 
     const full = await SELF.fetch(`${BASE}/session/${sessionId}/events?from=0`);
+    // The viewer fetches replay cross-origin; without this header late-joiner
+    // replay silently fails in the browser (exit-benchmark regression).
+    expect(full.headers.get("Access-Control-Allow-Origin")).toBe("*");
     const { events } = (await full.json()) as { events: SignedEvent[] };
     expect(events.length).toBeGreaterThanOrEqual(3);
     expect(await verifyChain(events)).toEqual({ valid: true, length: events.length });
