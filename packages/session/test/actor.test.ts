@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { verifyChain, type QueuedMessage, type SignedEvent } from "@side-street/core";
-import { SessionActor } from "../src/actor.js";
+import {
+  verifyChain,
+  type PermissionOutcome,
+  type QueuedMessage,
+  type SignedEvent,
+} from "@side-street/core";
+import { SessionActor, type PermissionRequest } from "../src/actor.js";
 import type { PrivateMessage } from "../src/ports.js";
 
 class InMemoryStore {
@@ -30,6 +35,7 @@ class RecordingBroadcaster {
 
 class RecordingAgent {
   readonly prompts: QueuedMessage[][] = [];
+  readonly permissionResponses: Array<{ requestId: string; outcome: PermissionOutcome }> = [];
   cancels = 0;
   prompt(messages: readonly QueuedMessage[]): void {
     this.prompts.push([...messages]);
@@ -37,7 +43,20 @@ class RecordingAgent {
   cancel(): void {
     this.cancels++;
   }
+  respondPermission(requestId: string, outcome: PermissionOutcome): void {
+    this.permissionResponses.push({ requestId, outcome });
+  }
 }
+
+const REQUEST: PermissionRequest = {
+  requestId: "perm-1",
+  toolCallId: "tc-1",
+  title: "Run rm -rf build",
+  options: [
+    { optionId: "allow", name: "Allow once", kind: "allow_once" },
+    { optionId: "deny", name: "Deny", kind: "reject_once" },
+  ],
+};
 
 function harness() {
   const store = new InMemoryStore();
@@ -226,6 +245,78 @@ describe("replay and persistence", () => {
       expect.objectContaining({ authorId: "bob", text: "suggestion in flight" }),
     ]);
     expect(await verifyChain(store.events)).toMatchObject({ valid: true });
+  });
+});
+
+describe("permission gates", () => {
+  it("logs and broadcasts a permission request, holding it pending", async () => {
+    const { store, broadcaster, agent, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    expect(store.events.at(-1)?.body).toEqual({ type: "permission_request", payload: REQUEST });
+    expect(broadcaster.broadcasts.at(-1)?.body.type).toBe("permission_request");
+    // Nothing runs until a decision arrives.
+    expect(agent.permissionResponses).toEqual([]);
+  });
+
+  it("lets the Driver decide: logs the decision and answers the agent", async () => {
+    const { store, agent, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", { kind: "selected", optionId: "allow" });
+
+    expect(store.events.at(-1)?.body).toEqual({
+      type: "permission_decision",
+      payload: { requestId: "perm-1", outcome: { kind: "selected", optionId: "allow" } },
+    });
+    expect(agent.permissionResponses).toEqual([
+      { requestId: "perm-1", outcome: { kind: "selected", optionId: "allow" } },
+    ]);
+    expect(await verifyChain(store.events)).toMatchObject({ valid: true });
+  });
+
+  it("rejects a non-Driver decision privately and keeps the tool blocked", async () => {
+    const { store, broadcaster, agent, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    const before = store.events.length;
+
+    await actor.decide("bob", "perm-1", { kind: "selected", optionId: "allow" });
+    expect(broadcaster.privates.at(-1)).toEqual({
+      participantId: "bob",
+      message: {
+        kind: "steer_rejected",
+        messageId: "perm-1",
+        reason: "only the driver may approve tools",
+      },
+    });
+    expect(store.events.length).toBe(before); // nothing logged
+    expect(agent.permissionResponses).toEqual([]); // agent not answered
+
+    // The request is still pending, so the Driver can still decide it.
+    await actor.decide("alice", "perm-1", { kind: "cancelled" });
+    expect(agent.permissionResponses).toEqual([
+      { requestId: "perm-1", outcome: { kind: "cancelled" } },
+    ]);
+  });
+
+  it("answers a request only once — duplicate and unknown decisions are no-ops", async () => {
+    const { agent, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", { kind: "selected", optionId: "allow" });
+    await actor.decide("alice", "perm-1", { kind: "cancelled" }); // duplicate
+    await actor.decide("alice", "perm-unknown", { kind: "cancelled" }); // never requested
+    expect(agent.permissionResponses).toEqual([
+      { requestId: "perm-1", outcome: { kind: "selected", optionId: "allow" } },
+    ]);
+  });
+
+  it("keeps pending requests across a snapshot restore", async () => {
+    const { store, broadcaster, agent, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+
+    const revived = new SessionActor({ store, broadcaster, agent, now: () => 100 }, actor.snapshot);
+    await revived.decide("alice", "perm-1", { kind: "selected", optionId: "allow" });
+    expect(agent.permissionResponses).toEqual([
+      { requestId: "perm-1", outcome: { kind: "selected", optionId: "allow" } },
+    ]);
   });
 });
 

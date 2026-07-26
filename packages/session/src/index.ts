@@ -1,5 +1,6 @@
 export {
   SessionActor,
+  type PermissionRequest,
   type RosterEntry,
   type SessionActorDeps,
   type SessionActorSnapshot,

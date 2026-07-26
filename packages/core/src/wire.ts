@@ -6,7 +6,12 @@
  */
 
 import { z } from "zod";
-import { eventBodySchema, signedEventSchema } from "./events.js";
+import {
+  eventBodySchema,
+  permissionOptionSchema,
+  permissionOutcomeSchema,
+  signedEventSchema,
+} from "./events.js";
 import { roleSchema } from "./roles.js";
 
 /** Schema mirror of the steering engine's QueuedMessage, for frame parsing. */
@@ -29,6 +34,11 @@ export const viewerFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("handoff"),
     toParticipantId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("decide"),
+    requestId: z.string().min(1),
+    outcome: permissionOutcomeSchema,
   }),
 ]);
 export type ViewerFrame = z.infer<typeof viewerFrameSchema>;
@@ -58,6 +68,13 @@ export const agentFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("turn_ended"),
     stopReason: z.enum(["end_turn", "max_tokens", "refusal", "cancelled"]),
   }),
+  z.object({
+    type: z.literal("permission_request"),
+    requestId: z.string().min(1),
+    toolCallId: z.string().min(1),
+    title: z.string().min(1),
+    options: z.array(permissionOptionSchema).min(1),
+  }),
 ]);
 export type AgentFrame = z.infer<typeof agentFrameSchema>;
 
@@ -65,6 +82,11 @@ export type AgentFrame = z.infer<typeof agentFrameSchema>;
 export const agentServerFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("prompt"), messages: z.array(queuedMessageSchema).min(1) }),
   z.object({ type: z.literal("cancel") }),
+  z.object({
+    type: z.literal("permission_decision"),
+    requestId: z.string().min(1),
+    outcome: permissionOutcomeSchema,
+  }),
 ]);
 export type AgentServerFrame = z.infer<typeof agentServerFrameSchema>;
 

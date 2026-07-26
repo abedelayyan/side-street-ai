@@ -1,15 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PermissionRequestParams } from "@side-street/acp-client";
-import {
-  agentSocketUrl,
-  decidePermission,
-  sessionSocketFromWebSocket,
-  type WebSocketLike,
-} from "../src/runner.js";
-
-function permission(options: PermissionRequestParams["options"]): PermissionRequestParams {
-  return { sessionId: "s", toolCall: { toolCallId: "t1" }, options };
-}
+import { agentSocketUrl, sessionSocketFromWebSocket, type WebSocketLike } from "../src/runner.js";
 
 describe("agentSocketUrl", () => {
   it("maps http session URLs to ws agent URLs", () => {
@@ -22,35 +12,6 @@ describe("agentSocketUrl", () => {
     expect(agentSocketUrl("https://example.com/session/demo/")).toBe(
       "wss://example.com/session/demo/agent",
     );
-  });
-});
-
-describe("decidePermission", () => {
-  it("prefers allow_once over allow_always", () => {
-    const outcome = decidePermission(
-      permission([
-        { optionId: "always", name: "Always", kind: "allow_always" },
-        { optionId: "once", name: "Once", kind: "allow_once" },
-      ]),
-    );
-    expect(outcome).toEqual({ outcome: "selected", optionId: "once" });
-  });
-
-  it("falls back to allow_always", () => {
-    const outcome = decidePermission(
-      permission([
-        { optionId: "no", name: "No", kind: "reject_once" },
-        { optionId: "always", name: "Always", kind: "allow_always" },
-      ]),
-    );
-    expect(outcome).toEqual({ outcome: "selected", optionId: "always" });
-  });
-
-  it("denies when no allow option exists", () => {
-    const outcome = decidePermission(
-      permission([{ optionId: "no", name: "No", kind: "reject_once" }]),
-    );
-    expect(outcome).toEqual({ outcome: "cancelled" });
   });
 });
 

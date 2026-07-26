@@ -10,10 +10,17 @@
  * frame (the Driver's hard-interrupt) ends the session-level turn.
  */
 
-import { agentServerFrameSchema, type AgentFrame, type QueuedMessage } from "@side-street/core";
+import {
+  agentServerFrameSchema,
+  type AgentFrame,
+  type PermissionOutcome as CorePermissionOutcome,
+  type QueuedMessage,
+} from "@side-street/core";
 import {
   toEventBody,
   type ContentBlock,
+  type PermissionOutcome,
+  type PermissionRequestParams,
   type SessionUpdate,
   type StopReason,
 } from "@side-street/acp-client";
@@ -30,6 +37,13 @@ export interface PromptingAgent {
   cancel(sessionId: string): void;
 }
 
+/** ACP uses `outcome` as its discriminant; our wire/event model uses `kind`. */
+function toAcpOutcome(outcome: CorePermissionOutcome): PermissionOutcome {
+  return outcome.kind === "selected"
+    ? { outcome: "selected", optionId: outcome.optionId }
+    : { outcome: "cancelled" };
+}
+
 export interface AgentBridgeOptions {
   socket: SessionSocket;
   agent: PromptingAgent;
@@ -43,6 +57,8 @@ type TurnState =
 
 export class AgentBridge {
   private state: TurnState = { phase: "idle" };
+  private readonly pendingPermissions = new Map<string, (outcome: PermissionOutcome) => void>();
+  private nextRequestId = 1;
 
   constructor(private readonly options: AgentBridgeOptions) {
     options.socket.onFrame((raw) => {
@@ -58,6 +74,27 @@ export class AgentBridge {
     }
   }
 
+  /**
+   * Route an ACP permission request through the session for a Driver decision
+   * (PLAN.md: approval gates on side-effecting tools). Wire this into
+   * `AcpClient`'s `onPermissionRequest`; the returned promise resolves when the
+   * Driver's `permission_decision` arrives — or never, if no Driver decides,
+   * which is the safe behavior for a gate (the tool stays blocked).
+   */
+  requestPermission(params: PermissionRequestParams): Promise<PermissionOutcome> {
+    const requestId = `perm-${this.nextRequestId++}`;
+    return new Promise((resolve) => {
+      this.pendingPermissions.set(requestId, resolve);
+      this.send({
+        type: "permission_request",
+        requestId,
+        toolCallId: params.toolCall.toolCallId,
+        title: params.toolCall.title ?? params.toolCall.toolCallId,
+        options: params.options,
+      });
+    });
+  }
+
   private handleFrame(raw: unknown): void {
     const frame = agentServerFrameSchema.safeParse(raw);
     if (!frame.success) {
@@ -68,6 +105,14 @@ export class AgentBridge {
       if (this.state.phase === "running") {
         this.state.hardCancelled = true;
         this.options.agent.cancel(this.options.acpSessionId);
+      }
+      return;
+    }
+    if (frame.data.type === "permission_decision") {
+      const resolve = this.pendingPermissions.get(frame.data.requestId);
+      if (resolve !== undefined) {
+        this.pendingPermissions.delete(frame.data.requestId);
+        resolve(toAcpOutcome(frame.data.outcome));
       }
       return;
     }

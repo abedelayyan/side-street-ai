@@ -16,6 +16,21 @@ export const SCHEMA_VERSION = 1;
 const toolCallStatusSchema = z.enum(["pending", "in_progress", "completed", "failed", "cancelled"]);
 export type ToolCallStatus = z.infer<typeof toolCallStatusSchema>;
 
+/** A Driver's answer to a permission request: pick an option, or cancel (deny). */
+export const permissionOutcomeSchema = z.union([
+  z.object({ kind: z.literal("selected"), optionId: z.string().min(1) }),
+  z.object({ kind: z.literal("cancelled") }),
+]);
+export type PermissionOutcome = z.infer<typeof permissionOutcomeSchema>;
+
+/** An option the agent offers for a permission request (mirrors ACP options). */
+export const permissionOptionSchema = z.object({
+  optionId: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.enum(["allow_once", "allow_always", "reject_once", "reject_always"]).optional(),
+});
+export type PermissionOption = z.infer<typeof permissionOptionSchema>;
+
 /**
  * Discriminated union of event bodies. Extend by adding variants; never
  * repurpose an existing `type` — replayability of old logs depends on it.
@@ -82,17 +97,15 @@ export const eventBodySchema = z.discriminatedUnion("type", [
     payload: z.object({
       requestId: z.string().min(1),
       toolCallId: z.string().min(1),
-      optionIds: z.array(z.string().min(1)).min(1),
+      title: z.string().min(1),
+      options: z.array(permissionOptionSchema).min(1),
     }),
   }),
   z.object({
     type: z.literal("permission_decision"),
     payload: z.object({
       requestId: z.string().min(1),
-      outcome: z.union([
-        z.object({ kind: z.literal("selected"), optionId: z.string().min(1) }),
-        z.object({ kind: z.literal("cancelled") }),
-      ]),
+      outcome: permissionOutcomeSchema,
     }),
   }),
   z.object({

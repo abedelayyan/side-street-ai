@@ -6,11 +6,7 @@
  * dev machine for the Phase 1 exit benchmark.
  */
 
-import {
-  AcpClient,
-  type PermissionOutcome,
-  type PermissionRequestParams,
-} from "@side-street/acp-client";
+import { AcpClient, type PermissionOutcome } from "@side-street/acp-client";
 import { AgentBridge, type SessionSocket } from "./bridge.js";
 import { spawnAgent } from "./stdio.js";
 
@@ -24,19 +20,6 @@ export function agentSocketUrl(sessionUrl: string): string {
   }
   url.pathname = `${url.pathname.replace(/\/$/, "")}/agent`;
   return url.toString();
-}
-
-/**
- * v0 permission policy: auto-select the narrowest allow option, deny when
- * none exists. Driver-gated approval surfaced through the session is a
- * Phase 2 deliverable (PLAN.md) — until then the runner must never block a
- * local dev turn waiting on a decision nobody can deliver.
- */
-export function decidePermission(params: PermissionRequestParams): PermissionOutcome {
-  const allow =
-    params.options.find((option) => option.kind === "allow_once") ??
-    params.options.find((option) => option.kind === "allow_always");
-  return allow ? { outcome: "selected", optionId: allow.optionId } : { outcome: "cancelled" };
 }
 
 /** The structural slice of WebSocket the runner needs (keeps tests socket-free). */
@@ -95,11 +78,13 @@ export async function main(argv: readonly string[]): Promise<void> {
       bridge?.onSessionUpdate(update);
     },
     onPermissionRequest(params): Promise<PermissionOutcome> {
-      const outcome = decidePermission(params);
       console.error(
-        `permission ${params.toolCall.toolCallId} (${params.toolCall.title ?? "untitled"}): ${outcome.outcome}`,
+        `permission ${params.toolCall.toolCallId} (${params.toolCall.title ?? "untitled"}): awaiting driver`,
       );
-      return Promise.resolve(outcome);
+      // Route to the Driver through the session; the tool stays blocked until
+      // a decision arrives. Before the bridge connects there is no session to
+      // ask, so deny — the safe default for a gate.
+      return bridge?.requestPermission(params) ?? Promise.resolve({ outcome: "cancelled" });
     },
     onError(error): void {
       console.error(`acp: ${error.message}`);

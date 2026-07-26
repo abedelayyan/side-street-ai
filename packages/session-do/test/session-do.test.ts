@@ -197,6 +197,74 @@ describe("agent bridge", () => {
     const prompt = await agent.waitFor((f) => f["type"] === "prompt");
     expect(prompt["messages"]).toEqual([expect.objectContaining({ text: "queued while offline" })]);
   });
+
+  it("gates a tool permission on the Driver's decision, then answers the agent", async () => {
+    const sessionId = freshSession();
+    const agent = await connect(`/session/${sessionId}/agent`);
+    const alice = await connect(viewerPath(sessionId, "alice", "driver"));
+    await alice.waitFor((f) => f["type"] === "welcome");
+    alice.ws.send(JSON.stringify({ type: "handoff", toParticipantId: "alice" }));
+    await alice.waitFor(isEventOf("control_handoff"));
+
+    agent.ws.send(
+      JSON.stringify({
+        type: "permission_request",
+        requestId: "perm-1",
+        toolCallId: "tc-1",
+        title: "Run rm -rf build",
+        options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+      }),
+    );
+    const reqEvent = await alice.waitFor(isEventOf("permission_request"));
+    expect((reqEvent["event"] as SignedEvent).body).toMatchObject({
+      type: "permission_request",
+      payload: { requestId: "perm-1", title: "Run rm -rf build" },
+    });
+
+    alice.ws.send(
+      JSON.stringify({
+        type: "decide",
+        requestId: "perm-1",
+        outcome: { kind: "selected", optionId: "allow" },
+      }),
+    );
+    const decision = await agent.waitFor((f) => f["type"] === "permission_decision");
+    expect(decision).toMatchObject({
+      requestId: "perm-1",
+      outcome: { kind: "selected", optionId: "allow" },
+    });
+  });
+
+  it("blocks a non-Driver from approving a tool", async () => {
+    const sessionId = freshSession();
+    const agent = await connect(`/session/${sessionId}/agent`);
+    const alice = await connect(viewerPath(sessionId, "alice", "driver"));
+    await alice.waitFor((f) => f["type"] === "welcome");
+    const bob = await connect(viewerPath(sessionId, "bob", "navigator"));
+    await bob.waitFor((f) => f["type"] === "welcome");
+    alice.ws.send(JSON.stringify({ type: "handoff", toParticipantId: "alice" }));
+    await bob.waitFor(isEventOf("control_handoff"));
+
+    agent.ws.send(
+      JSON.stringify({
+        type: "permission_request",
+        requestId: "perm-2",
+        toolCallId: "tc-2",
+        title: "delete prod bucket",
+        options: [{ optionId: "allow", name: "Allow" }],
+      }),
+    );
+    await bob.waitFor(isEventOf("permission_request"));
+
+    bob.ws.send(
+      JSON.stringify({ type: "decide", requestId: "perm-2", outcome: { kind: "cancelled" } }),
+    );
+    const rejection = await bob.waitFor((f) => f["type"] === "steer_rejected");
+    expect(rejection).toMatchObject({
+      messageId: "perm-2",
+      reason: "only the driver may approve tools",
+    });
+  });
 });
 
 describe("replay", () => {

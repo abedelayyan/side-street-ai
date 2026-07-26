@@ -9,6 +9,8 @@ import {
   SteeringController,
   appendEvent,
   type EventBody,
+  type PermissionOption,
+  type PermissionOutcome,
   type Role,
   type SignedEvent,
   type SteeringEffect,
@@ -32,6 +34,15 @@ export interface SessionActorDeps {
 export interface SessionActorSnapshot {
   steering: SteeringState;
   roster: RosterEntry[];
+  /** Permission requests awaiting a Driver decision — survives hibernation. */
+  pendingPermissions: string[];
+}
+
+export interface PermissionRequest {
+  requestId: string;
+  toolCallId: string;
+  title: string;
+  options: PermissionOption[];
 }
 
 export type SteerInput = { id: string; text: string; delivery: "queue" | "interrupt" };
@@ -39,6 +50,7 @@ export type SteerInput = { id: string; text: string; delivery: "queue" | "interr
 export class SessionActor {
   private readonly steering: SteeringController;
   private readonly roster = new Map<string, RosterEntry>();
+  private readonly pendingPermissions: Set<string>;
 
   constructor(
     private readonly deps: SessionActorDeps,
@@ -48,11 +60,16 @@ export class SessionActor {
     for (const entry of snapshot?.roster ?? []) {
       this.roster.set(entry.id, entry);
     }
+    this.pendingPermissions = new Set(snapshot?.pendingPermissions ?? []);
   }
 
   /** Serializable state for the wrapper to persist alongside the event log. */
   get snapshot(): SessionActorSnapshot {
-    return { steering: this.steering.state, roster: [...this.roster.values()] };
+    return {
+      steering: this.steering.state,
+      roster: [...this.roster.values()],
+      pendingPermissions: [...this.pendingPermissions],
+    };
   }
 
   get driverId(): string | null {
@@ -154,6 +171,57 @@ export class SessionActor {
     if (boundaryReached) {
       this.applyEffects(this.steering.onToolCallBoundary());
     }
+  }
+
+  /**
+   * The agent asked to run a side-effecting tool. Log the request and hold it
+   * pending; nothing runs until the Driver decides (PLAN.md: approval gates are
+   * the load-bearing control against prompt injection).
+   */
+  async onPermissionRequest(request: PermissionRequest): Promise<void> {
+    this.pendingPermissions.add(request.requestId);
+    await this.append("agent", {
+      type: "permission_request",
+      payload: {
+        requestId: request.requestId,
+        toolCallId: request.toolCallId,
+        title: request.title,
+        options: request.options,
+      },
+    });
+  }
+
+  /**
+   * A participant answers a pending permission request. Only the Driver (the
+   * wheel-holder — authority follows the wheel, not the join-time role) may
+   * decide; anyone else is privately rejected and the tool stays blocked.
+   */
+  async decide(
+    participantId: string,
+    requestId: string,
+    outcome: PermissionOutcome,
+  ): Promise<void> {
+    if (!this.roster.has(participantId)) {
+      return;
+    }
+    if (participantId !== this.driverId) {
+      this.deps.broadcaster.sendTo(participantId, {
+        kind: "steer_rejected",
+        messageId: requestId,
+        reason: "only the driver may approve tools",
+      });
+      return;
+    }
+    // Unknown/duplicate/already-decided request: drop it (the delete reports
+    // whether it was actually pending), so a tool is never answered twice.
+    if (!this.pendingPermissions.delete(requestId)) {
+      return;
+    }
+    await this.append(participantId, {
+      type: "permission_decision",
+      payload: { requestId, outcome },
+    });
+    this.deps.agent.respondPermission(requestId, outcome);
   }
 
   /** The agent's turn ended (naturally or via cancel). */

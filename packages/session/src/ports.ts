@@ -5,7 +5,7 @@
  * keeps the Cloudflare-exit hatch in ADR-0001 real.
  */
 
-import type { QueuedMessage, SignedEvent } from "@side-street/core";
+import type { PermissionOutcome, QueuedMessage, SignedEvent } from "@side-street/core";
 
 export interface EventStore {
   /** The latest event, if any — the chain tip new events link to. */
@@ -32,4 +32,6 @@ export type PrivateMessage = { kind: "steer_rejected"; messageId: string; reason
 export interface AgentPort {
   prompt(messages: readonly QueuedMessage[]): void;
   cancel(): void;
+  /** Answer a pending ACP permission request (the Driver's decision). */
+  respondPermission(requestId: string, outcome: PermissionOutcome): void;
 }

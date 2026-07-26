@@ -40,7 +40,7 @@ position. A log tail can be verified independently given the hash of the event p
 | `agent_message_chunk` | agent         | `text` (token-level streaming)                               |
 | `tool_call`           | agent         | `toolCallId`, `title`, `status`                              |
 | `tool_call_update`    | agent         | `toolCallId`, `status`, optional `output`                    |
-| `permission_request`  | agent         | `requestId`, `toolCallId`, `optionIds`                       |
+| `permission_request`  | agent         | `requestId`, `toolCallId`, `title`, `options[]`              |
 | `permission_decision` | the Driver    | `requestId`, `outcome` (selected optionId or cancelled)      |
 | `turn_ended`          | agent         | `stopReason: end_turn \| max_tokens \| refusal \| cancelled` |
 | `checkpoint`          | system        | `summary`, optional `snapshotRef`                            |
@@ -91,10 +91,11 @@ development environments.**
 
 Viewer → server frames:
 
-| Frame     | Fields                                           | Meaning                    |
-| --------- | ------------------------------------------------ | -------------------------- |
-| `steer`   | `id`, `text`, `delivery: "queue" \| "interrupt"` | Submit a steering message  |
-| `handoff` | `toParticipantId`                                | Hand off / claim the wheel |
+| Frame     | Fields                                           | Meaning                                   |
+| --------- | ------------------------------------------------ | ----------------------------------------- |
+| `steer`   | `id`, `text`, `delivery: "queue" \| "interrupt"` | Submit a steering message                 |
+| `handoff` | `toParticipantId`                                | Hand off / claim the wheel                |
+| `decide`  | `requestId`, `outcome`                           | Answer a permission request (Driver only) |
 
 Server → viewer frames:
 
@@ -119,10 +120,19 @@ role — the Observer floor applied to all.
 ### `GET /session/:id/agent` — agent bridge socket (WebSocket upgrade)
 
 Connected by the sandbox-side ACP bridge. Server → bridge frames: `prompt` (attributed
-`messages` to deliver to the agent) and `cancel` (hard-interrupt). Bridge → server frames:
-`agent_event` (a translated event body to append) and `turn_ended` (`stopReason`). Prompt
-and cancel frames emitted while the bridge is disconnected are buffered durably and flushed
-in order on (re)connect.
+`messages` to deliver to the agent), `cancel` (hard-interrupt), and `permission_decision`
+(`requestId`, `outcome` — the Driver's answer to relay to the ACP agent). Bridge → server
+frames: `agent_event` (a translated event body to append), `turn_ended` (`stopReason`), and
+`permission_request` (`requestId`, `toolCallId`, `title`, `options[]` — the agent is asking
+to run a side-effecting tool). Server→bridge frames emitted while the bridge is disconnected
+are buffered durably and flushed in order on (re)connect.
+
+**Approval gates**: a `permission_request` from the agent is logged and broadcast, then held
+pending — nothing runs until the **Driver** (the wheel-holder) sends a `decide` frame. A
+non-Driver `decide` is privately rejected (`steer_rejected`) and the tool stays blocked; each
+request is answered at most once. The pending set survives DO hibernation, so a Driver
+decision after a reconnect still resolves the waiting tool call. If no Driver ever decides,
+the tool stays blocked — the safe default for a gate.
 
 ### `GET /session/:id/verify` — chain verification
 

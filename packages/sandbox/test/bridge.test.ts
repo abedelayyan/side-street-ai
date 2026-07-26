@@ -52,13 +52,13 @@ function harness() {
   const socket = new FakeSocket();
   const agent = new ScriptedAgent();
   const errors: Error[] = [];
-  new AgentBridge({
+  const bridge = new AgentBridge({
     socket,
     agent,
     acpSessionId: "acp-1",
     onError: (e) => errors.push(e),
   });
-  return { socket, agent, errors };
+  return { socket, agent, errors, bridge };
 }
 
 describe("formatPrompt", () => {
@@ -136,6 +136,57 @@ describe("AgentBridge turns", () => {
     socket.emit({ type: "prompt", messages: [qm("alice", "driver", "task")] });
     await agent.endTurn("end_turn");
     expect(socket.turnEnds()).toEqual([{ type: "turn_ended", stopReason: "end_turn" }]);
+  });
+});
+
+describe("AgentBridge permission gates", () => {
+  const params = {
+    sessionId: "acp-1",
+    toolCall: { toolCallId: "tc-1", title: "Run rm -rf build" },
+    options: [
+      { optionId: "allow", name: "Allow once", kind: "allow_once" as const },
+      { optionId: "deny", name: "Deny", kind: "reject_once" as const },
+    ],
+  };
+
+  it("sends a permission_request frame and resolves when the decision returns", async () => {
+    const { socket, bridge } = harness();
+    const pending = bridge.requestPermission(params);
+
+    const sent = socket.sent.find((f) => f.type === "permission_request");
+    expect(sent).toMatchObject({
+      type: "permission_request",
+      toolCallId: "tc-1",
+      title: "Run rm -rf build",
+      options: params.options,
+    });
+    const requestId = (sent as { requestId: string }).requestId;
+
+    // The session returns the Driver's decision in our wire shape (`kind`);
+    // the bridge translates it back to ACP's shape (`outcome`) for the agent.
+    socket.emit({
+      type: "permission_decision",
+      requestId,
+      outcome: { kind: "selected", optionId: "allow" },
+    });
+    await expect(pending).resolves.toEqual({ outcome: "selected", optionId: "allow" });
+  });
+
+  it("translates a cancelled decision to an ACP cancellation", async () => {
+    const { socket, bridge } = harness();
+    const pending = bridge.requestPermission(params);
+    const requestId = (
+      socket.sent.find((f) => f.type === "permission_request") as { requestId: string }
+    ).requestId;
+    socket.emit({ type: "permission_decision", requestId, outcome: { kind: "cancelled" } });
+    await expect(pending).resolves.toEqual({ outcome: "cancelled" });
+  });
+
+  it("falls back to the toolCallId when the tool call has no title", async () => {
+    const { socket, bridge } = harness();
+    void bridge.requestPermission({ ...params, toolCall: { toolCallId: "tc-9" } });
+    const sent = socket.sent.find((f) => f.type === "permission_request");
+    expect(sent).toMatchObject({ title: "tc-9" });
   });
 });
 

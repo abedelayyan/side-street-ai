@@ -24,7 +24,15 @@ describe("eventBodySchema", () => {
       { type: "human_message", payload: { text: "stop", delivery: "interrupt" } },
       {
         type: "permission_request",
-        payload: { requestId: "r1", toolCallId: "t1", optionIds: ["allow", "deny"] },
+        payload: {
+          requestId: "r1",
+          toolCallId: "t1",
+          title: "Run rm -rf",
+          options: [
+            { optionId: "allow", name: "Allow", kind: "allow_once" },
+            { optionId: "deny", name: "Deny", kind: "reject_once" },
+          ],
+        },
       },
       {
         type: "permission_decision",

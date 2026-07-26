@@ -12,10 +12,5 @@ export {
   type SandboxStatus,
 } from "./provider.js";
 export { E2bProvider, SANDBOX_REPO_PATH, type E2bProviderOptions } from "./e2b.js";
-export {
-  agentSocketUrl,
-  decidePermission,
-  sessionSocketFromWebSocket,
-  type WebSocketLike,
-} from "./runner.js";
+export { agentSocketUrl, sessionSocketFromWebSocket, type WebSocketLike } from "./runner.js";
 export { spawnAgent, type AgentProcess, type SpawnAgentOptions } from "./stdio.js";

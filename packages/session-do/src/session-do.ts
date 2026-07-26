@@ -121,6 +121,8 @@ export class SessionDurableObject extends DurableObject<Env> {
       const agent: AgentPort = {
         prompt: (messages) => this.toAgent({ type: "prompt", messages: [...messages] }),
         cancel: () => this.toAgent({ type: "cancel" }),
+        respondPermission: (requestId, outcome) =>
+          this.toAgent({ type: "permission_decision", requestId, outcome }),
       };
       this.actor = new SessionActor(
         { store: this.store, broadcaster, agent, now: () => Date.now() },
@@ -218,8 +220,15 @@ export class SessionDurableObject extends DurableObject<Env> {
       }
       if (frame.data.type === "agent_event") {
         await this.actor.onAgentEvent(frame.data.body);
-      } else {
+      } else if (frame.data.type === "turn_ended") {
         await this.actor.onTurnEnded(frame.data.stopReason);
+      } else {
+        await this.actor.onPermissionRequest({
+          requestId: frame.data.requestId,
+          toolCallId: frame.data.toolCallId,
+          title: frame.data.title,
+          options: frame.data.options,
+        });
       }
       await this.persistState();
       return;
@@ -236,8 +245,10 @@ export class SessionDurableObject extends DurableObject<Env> {
         text: frame.data.text,
         delivery: frame.data.delivery,
       });
-    } else {
+    } else if (frame.data.type === "handoff") {
       await this.actor.handoff(attachment.participantId, frame.data.toParticipantId);
+    } else {
+      await this.actor.decide(attachment.participantId, frame.data.requestId, frame.data.outcome);
     }
     await this.persistState();
   }
