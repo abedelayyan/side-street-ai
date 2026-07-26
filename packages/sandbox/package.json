@@ -19,7 +19,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "lint": "eslint src test"
+    "lint": "eslint src test",
+    "runner": "node --env-file-if-exists=../../.env dist/cli.js"
   },
   "dependencies": {
     "@side-street/acp-client": "workspace:*",
@@ -27,6 +28,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
     "vitest": "^3.2.0"
   }
 }
