@@ -24,6 +24,7 @@
   "dependencies": {
     "@side-street/acp-client": "workspace:*",
     "@side-street/core": "workspace:*",
+    "e2b": "^2.36.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
