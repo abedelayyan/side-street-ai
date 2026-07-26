@@ -66,7 +66,7 @@ export function sessionSocketFromWebSocket(ws: WebSocketLike): SessionSocket {
   };
 }
 
-const DEFAULT_AGENT_COMMAND = ["npx", "--yes", "@zed-industries/claude-code-acp"];
+const DEFAULT_AGENT_COMMAND = ["npx", "--yes", "@agentclientprotocol/claude-agent-acp"];
 
 export async function main(argv: readonly string[]): Promise<void> {
   const [sessionUrl, workspace, ...agentCommand] = argv;
