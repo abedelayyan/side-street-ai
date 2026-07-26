@@ -186,7 +186,7 @@ signal (see §8) — surface it immediately, do not push through.**
 _Goal: the session layer is trustworthy enough to hold real credentials in front of multiple viewers._
 
 - [x] Hash-chained attributed event log wired end-to-end (Phase 0 utilities → production path) + verification endpoint (`GET /session/:id/verify`)
-- [ ] `redaction`: secret scanning on every outbound event; per-role redaction; Observers never see raw secrets
+- [x] `redaction`: secret scanning on every outbound event; per-role redaction; Observers never see raw secrets — `@side-street/redaction` wired into the DO broadcast path (default policy redacts for all roles; `knownSecrets` feeds in once credential injection lands)
 - [ ] Session-scoped, short-lived credentials injected at sandbox boot; never in prompts; automatic expiry
 - [ ] ACP `request_permission` approval gates on side-effecting tools, surfaced to the Driver only
 - [ ] Checkpointing + compaction: periodic session snapshots so late joiners load checkpoint + tail, not thousands of events

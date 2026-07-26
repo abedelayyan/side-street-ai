@@ -163,6 +163,26 @@ describe("agent bridge", () => {
     await alice.waitFor(isEventOf("turn_ended"));
   });
 
+  it("redacts secrets in broadcast events before they reach viewers", async () => {
+    const sessionId = freshSession();
+    const agent = await connect(`/session/${sessionId}/agent`);
+    const observer = await connect(viewerPath(sessionId, "obs", "observer"));
+    await observer.waitFor((f) => f["type"] === "welcome");
+
+    // Agent surfaces an AWS key (assembled so no literal token lands in source).
+    const awsKey = "AKIA" + "IOSFODNN7EXAMPLE";
+    agent.ws.send(
+      JSON.stringify({
+        type: "agent_event",
+        body: { type: "agent_message_chunk", payload: { text: `found ${awsKey} in .env` } },
+      }),
+    );
+    const evt = await observer.waitFor(isEventOf("agent_message_chunk"));
+    const text = ((evt["event"] as SignedEvent).body.payload as { text: string }).text;
+    expect(text).toBe("found [redacted:aws-access-key] in .env");
+    expect(text).not.toContain(awsKey);
+  });
+
   it("buffers prompts while the agent bridge is down and flushes on connect", async () => {
     const sessionId = freshSession();
     const alice = await connect(viewerPath(sessionId, "alice", "driver"));

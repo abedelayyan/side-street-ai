@@ -108,6 +108,14 @@ Server → viewer frames:
 A participant's departure is logged only when their last open socket closes (multi-tab and
 reconnect races keep them present).
 
+**Redaction**: every `event` frame is passed through the redaction pass, keyed by the
+recipient socket's role, before it is sent (`@side-street/redaction`; PLAN.md invariant 5).
+Secrets are stripped and replaced with `[redacted:<label>]`. A redacted event keeps the
+canonical `hash` (the frame is a per-role view of the stored event), so a viewer that
+received redacted content cannot re-hash locally and verifies via `/verify` instead;
+secret-free events are unchanged and verify normally. The default policy redacts for every
+role — the Observer floor applied to all.
+
 ### `GET /session/:id/agent` — agent bridge socket (WebSocket upgrade)
 
 Connected by the sandbox-side ACP bridge. Server → bridge frames: `prompt` (attributed

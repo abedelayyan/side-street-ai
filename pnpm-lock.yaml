@@ -97,6 +97,9 @@ importers:
       '@side-street/core':
         specifier: workspace:*
         version: link:../core
+      '@side-street/redaction':
+        specifier: workspace:*
+        version: link:../redaction
       '@side-street/session':
         specifier: workspace:*
         version: link:../session

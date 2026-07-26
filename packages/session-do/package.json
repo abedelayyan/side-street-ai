@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@side-street/core": "workspace:*",
+    "@side-street/redaction": "workspace:*",
     "@side-street/session": "workspace:*",
     "zod": "^4.0.0"
   },

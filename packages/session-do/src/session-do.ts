@@ -13,9 +13,11 @@ import {
   verifyChain,
   viewerFrameSchema,
   type AgentServerFrame,
+  type Role,
   type ServerFrame,
   type SignedEvent,
 } from "@side-street/core";
+import { redactEventForRole, type RedactionConfig } from "@side-street/redaction";
 import {
   SessionActor,
   type AgentPort,
@@ -29,7 +31,7 @@ export interface Env {
   SESSIONS: DurableObjectNamespace<SessionDurableObject>;
 }
 
-type Attachment = { kind: "viewer"; participantId: string } | { kind: "agent" };
+type Attachment = { kind: "viewer"; participantId: string; role: Role } | { kind: "agent" };
 
 const SNAPSHOT_KEY = "actor-snapshot";
 const OUTBOX_KEY = "agent-outbox";
@@ -99,6 +101,12 @@ export class SessionDurableObject extends DurableObject<Env> {
   private store!: SqliteEventStore;
   /** Prompt/cancel frames waiting for the agent bridge to (re)connect. */
   private outbox: AgentServerFrame[] = [];
+  /**
+   * Redaction applied to every outbound event, per recipient role. Default
+   * policy redacts secrets for all roles (the Observer floor, applied to
+   * everyone). `knownSecrets` stays empty until credential injection lands.
+   */
+  private readonly redactionConfig: RedactionConfig = {};
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -107,7 +115,7 @@ export class SessionDurableObject extends DurableObject<Env> {
       const snapshot = await ctx.storage.get<SessionActorSnapshot>(SNAPSHOT_KEY);
       this.outbox = (await ctx.storage.get<AgentServerFrame[]>(OUTBOX_KEY)) ?? [];
       const broadcaster: Broadcaster = {
-        broadcast: (event) => this.broadcastToViewers({ type: "event", event }),
+        broadcast: (event) => this.broadcastEvent(event),
         sendTo: (participantId, message) => this.sendPrivate(participantId, message),
       };
       const agent: AgentPort = {
@@ -162,7 +170,7 @@ export class SessionDurableObject extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ kind: "viewer", participantId } satisfies Attachment);
+    server.serializeAttachment({ kind: "viewer", participantId, role } satisfies Attachment);
 
     await this.ensureStarted();
     // Welcome must be the socket's first frame (docs/protocol.md): join()
@@ -271,9 +279,26 @@ export class SessionDurableObject extends DurableObject<Env> {
       .find((ws) => (ws.deserializeAttachment() as Attachment).kind === "agent");
   }
 
-  private broadcastToViewers(frame: ServerFrame): void {
-    const payload = JSON.stringify(frame);
+  /**
+   * Fan out an event, redacted per the recipient's role BEFORE it leaves the
+   * DO (PLAN.md invariant 5). Redaction is memoized per role — at most three
+   * distinct payloads regardless of viewer count. Known session secrets will
+   * feed `redactionConfig` once credential injection lands (Phase 2); pattern
+   * redaction protects the log until then.
+   */
+  private broadcastEvent(event: SignedEvent): void {
+    const payloadByRole = new Map<Role, string>();
     for (const ws of this.viewerSockets()) {
+      const attachment = ws.deserializeAttachment() as Attachment;
+      if (attachment.kind !== "viewer") {
+        continue;
+      }
+      let payload = payloadByRole.get(attachment.role);
+      if (payload === undefined) {
+        const redacted = redactEventForRole(event, attachment.role, this.redactionConfig);
+        payload = JSON.stringify({ type: "event", event: redacted } satisfies ServerFrame);
+        payloadByRole.set(attachment.role, payload);
+      }
       ws.send(payload);
     }
   }
