@@ -220,6 +220,38 @@ select {
   font-size: 13px;
 }
 
+.approvals {
+  display: grid;
+  gap: 8px;
+  margin: 0 16px 8px;
+}
+
+.approval {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+
+.approval-title {
+  font-weight: 600;
+  flex: 1;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.approval-wait {
+  color: var(--dim);
+  font-size: 13px;
+}
+
 .session footer {
   display: flex;
   gap: 8px;

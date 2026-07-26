@@ -155,6 +155,14 @@ describe("SessionClient", () => {
     expect(h.rejections).toEqual([{ messageId: id, reason: "observers are read-only" }]);
   });
 
+  it("sends a decide frame for a permission decision", () => {
+    const h = harness();
+    h.client.decide("perm-1", { kind: "selected", optionId: "allow" });
+    expect(h.socket.sent.map((s) => JSON.parse(s))).toEqual([
+      { type: "decide", requestId: "perm-1", outcome: { kind: "selected", optionId: "allow" } },
+    ]);
+  });
+
   it("ignores events at or below the cursor (no duplicates to the UI)", async () => {
     const h = harness();
     const log = await makeLog(2);

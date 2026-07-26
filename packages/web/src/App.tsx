@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { roleSchema, type Role, type SignedEvent } from "@side-street/core";
+import { roleSchema, type PermissionOutcome, type Role, type SignedEvent } from "@side-street/core";
 import { SessionClient, type SessionStatus } from "./lib/session-client.js";
 import { SessionView } from "./SessionView.js";
 
@@ -101,6 +101,10 @@ function Session({ details, onLeave }: { details: JoinDetails; onLeave(): void }
     setNotice(null);
     clientRef.current?.takeWheel();
   }, []);
+  const decide = useCallback((requestId: string, outcome: PermissionOutcome) => {
+    setNotice(null);
+    clientRef.current?.decide(requestId, outcome);
+  }, []);
 
   return (
     <SessionView
@@ -110,6 +114,7 @@ function Session({ details, onLeave }: { details: JoinDetails; onLeave(): void }
       self={details.participantId}
       onSteer={steer}
       onTakeWheel={takeWheel}
+      onDecide={decide}
       onLeave={onLeave}
     />
   );

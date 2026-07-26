@@ -12,6 +12,7 @@
 
 import {
   serverFrameSchema,
+  type PermissionOutcome,
   type Role,
   type ServerFrame,
   type SignedEvent,
@@ -95,6 +96,11 @@ export class SessionClient {
 
   takeWheel(toParticipantId = this.options.participantId): void {
     this.send({ type: "handoff", toParticipantId });
+  }
+
+  /** Answer a pending permission request (the server enforces Driver-only). */
+  decide(requestId: string, outcome: PermissionOutcome): void {
+    this.send({ type: "decide", requestId, outcome });
   }
 
   private send(frame: unknown): void {

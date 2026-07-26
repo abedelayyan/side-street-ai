@@ -102,4 +102,39 @@ describe("deriveSession", () => {
     expect(timeline).toHaveLength(1);
     expect(timeline[0]).toMatchObject({ kind: "system", text: "turn ended (cancelled)" });
   });
+
+  it("tracks a permission request as pending until its decision arrives", async () => {
+    const request: EventBody = {
+      type: "permission_request",
+      payload: {
+        requestId: "perm-1",
+        toolCallId: "tc-1",
+        title: "Run rm -rf build",
+        options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+      },
+    };
+    const requested = await log([{ authorId: "agent", body: request }]);
+    const afterRequest = deriveSession(requested);
+    expect(afterRequest.pendingPermissions).toEqual([
+      { requestId: "perm-1", title: "Run rm -rf build", options: request.payload.options },
+    ]);
+    expect(afterRequest.timeline.at(-1)).toMatchObject({
+      kind: "system",
+      text: "🔒 approval requested: Run rm -rf build",
+    });
+
+    const decided = await log([
+      { authorId: "agent", body: request },
+      {
+        authorId: "alice",
+        body: {
+          type: "permission_decision",
+          payload: { requestId: "perm-1", outcome: { kind: "selected", optionId: "allow" } },
+        },
+      },
+    ]);
+    const afterDecision = deriveSession(decided);
+    expect(afterDecision.pendingPermissions).toEqual([]); // no longer pending
+    expect(afterDecision.timeline.at(-1)).toMatchObject({ text: "🔓 tool approved (allow)" });
+  });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import type { SignedEvent } from "@side-street/core";
-import { deriveSession, type TimelineItem } from "./lib/derive.js";
+import type { PermissionOutcome, SignedEvent } from "@side-street/core";
+import { deriveSession, type PendingPermission, type TimelineItem } from "./lib/derive.js";
 import type { SessionStatus } from "./lib/session-client.js";
 
 export function SessionView({
@@ -10,6 +10,7 @@ export function SessionView({
   self,
   onSteer,
   onTakeWheel,
+  onDecide,
   onLeave,
 }: {
   events: SignedEvent[];
@@ -18,9 +19,14 @@ export function SessionView({
   self: string;
   onSteer(text: string, delivery: "queue" | "interrupt"): void;
   onTakeWheel(): void;
+  onDecide(requestId: string, outcome: PermissionOutcome): void;
   onLeave(): void;
 }): ReactElement {
-  const { timeline, roster, driverId } = useMemo(() => deriveSession(events), [events]);
+  const { timeline, roster, driverId, pendingPermissions } = useMemo(
+    () => deriveSession(events),
+    [events],
+  );
+  const isDriver = driverId === self;
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -62,13 +68,26 @@ export function SessionView({
         <div ref={bottomRef} />
       </section>
 
+      {pendingPermissions.length > 0 && (
+        <section className="approvals">
+          {pendingPermissions.map((request) => (
+            <PermissionPrompt
+              key={request.requestId}
+              request={request}
+              isDriver={isDriver}
+              onDecide={onDecide}
+            />
+          ))}
+        </section>
+      )}
+
       {notice !== null && <div className="notice">{notice}</div>}
 
       <footer>
         <button
           className="ghost"
           onClick={onTakeWheel}
-          disabled={driverId === self}
+          disabled={isDriver}
           title="Become the Driver"
         >
           🛞 Take the wheel
@@ -82,7 +101,7 @@ export function SessionView({
               submit("queue");
             }
           }}
-          placeholder={driverId === self ? "Steer the agent…" : "Suggest to the driver…"}
+          placeholder={isDriver ? "Steer the agent…" : "Suggest to the driver…"}
         />
         <button onClick={() => submit("queue")}>Send</button>
         <button
@@ -123,6 +142,45 @@ function TimelineRow({ item }: { item: TimelineItem }): ReactElement {
     case "system":
       return <div className="row system">{item.text}</div>;
   }
+}
+
+function PermissionPrompt({
+  request,
+  isDriver,
+  onDecide,
+}: {
+  request: PendingPermission;
+  isDriver: boolean;
+  onDecide(requestId: string, outcome: PermissionOutcome): void;
+}): ReactElement {
+  return (
+    <div className="approval">
+      <span className="approval-title">🔒 Agent wants to: {request.title}</span>
+      {isDriver ? (
+        <div className="approval-actions">
+          {request.options.map((option) => (
+            <button
+              key={option.optionId}
+              className={option.kind?.startsWith("allow") ? "" : "danger"}
+              onClick={() =>
+                onDecide(request.requestId, { kind: "selected", optionId: option.optionId })
+              }
+            >
+              {option.name}
+            </button>
+          ))}
+          <button
+            className="ghost"
+            onClick={() => onDecide(request.requestId, { kind: "cancelled" })}
+          >
+            Deny
+          </button>
+        </div>
+      ) : (
+        <span className="approval-wait">awaiting the Driver's decision…</span>
+      )}
+    </div>
+  );
 }
 
 function toolIcon(status: string): string {

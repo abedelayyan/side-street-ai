@@ -5,7 +5,7 @@
  * the timeline is always exactly what the log says — no shadow state.
  */
 
-import type { Role, SignedEvent } from "@side-street/core";
+import type { PermissionOption, Role, SignedEvent } from "@side-street/core";
 
 export type TimelineItem =
   | { kind: "agent_text"; key: string; text: string }
@@ -26,10 +26,18 @@ export interface RosterEntry {
   role: Role;
 }
 
+/** A permission request the agent is blocked on, awaiting a Driver decision. */
+export interface PendingPermission {
+  requestId: string;
+  title: string;
+  options: PermissionOption[];
+}
+
 export interface DerivedSession {
   timeline: TimelineItem[];
   roster: RosterEntry[];
   driverId: string | null;
+  pendingPermissions: PendingPermission[];
 }
 
 export function deriveSession(events: readonly SignedEvent[]): DerivedSession {
@@ -37,6 +45,7 @@ export function deriveSession(events: readonly SignedEvent[]): DerivedSession {
   const roster = new Map<string, RosterEntry>();
   const roles = new Map<string, Role>();
   const toolIndex = new Map<string, number>();
+  const pendingPermissions = new Map<string, PendingPermission>();
   let driverId: string | null = null;
 
   for (const event of events) {
@@ -142,11 +151,35 @@ export function deriveSession(events: readonly SignedEvent[]): DerivedSession {
         });
         break;
       case "permission_request":
-      case "permission_decision":
+        pendingPermissions.set(body.payload.requestId, {
+          requestId: body.payload.requestId,
+          title: body.payload.title,
+          options: body.payload.options,
+        });
+        timeline.push({
+          kind: "system",
+          key,
+          text: `🔒 approval requested: ${body.payload.title}`,
+        });
+        break;
+      case "permission_decision": {
+        pendingPermissions.delete(body.payload.requestId);
+        const text =
+          body.payload.outcome.kind === "selected"
+            ? `🔓 tool approved (${body.payload.outcome.optionId})`
+            : "🚫 tool denied";
+        timeline.push({ kind: "system", key, text });
+        break;
+      }
       case "checkpoint":
         break;
     }
   }
 
-  return { timeline, roster: [...roster.values()], driverId };
+  return {
+    timeline,
+    roster: [...roster.values()],
+    driverId,
+    pendingPermissions: [...pendingPermissions.values()],
+  };
 }

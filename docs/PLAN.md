@@ -188,7 +188,7 @@ _Goal: the session layer is trustworthy enough to hold real credentials in front
 - [x] Hash-chained attributed event log wired end-to-end (Phase 0 utilities → production path) + verification endpoint (`GET /session/:id/verify`)
 - [x] `redaction`: secret scanning on every outbound event; per-role redaction; Observers never see raw secrets — `@side-street/redaction` wired into the DO broadcast path (default policy redacts for all roles; `knownSecrets` feeds in once credential injection lands)
 - [ ] Session-scoped, short-lived credentials injected at sandbox boot; never in prompts; automatic expiry
-- [ ] ACP `request_permission` approval gates on side-effecting tools, surfaced to the Driver only
+- [x] ACP `request_permission` approval gates on side-effecting tools, surfaced to the Driver only — bridge routes ACP requests through the session; only the wheel-holding Driver decides; the tool stays blocked until then; Driver approve/deny UI in `web`
 - [ ] Checkpointing + compaction: periodic session snapshots so late joiners load checkpoint + tail, not thousands of events
 - [ ] Compensation framework for side-effecting tools: idempotency keys, replay-or-fork decision on restore
 - [ ] Reconnect hardening: tab-switch, multi-device, network-drop resume from offset — explicitly tested
