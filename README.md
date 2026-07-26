@@ -8,8 +8,23 @@ own agent: it wraps Claude Code, Codex, Gemini CLI, and anything else that speak
 [Agent Client Protocol](https://agentclientprotocol.com), and owns the collaboration surface
 around them.
 
-> **Status: pre-alpha.** We're building in public against a phased plan — see
-> [`docs/PLAN.md`](docs/PLAN.md). Nothing is runnable yet; the foundation is being laid.
+> **Status: pre-alpha, but runnable.** We're building in public against a phased plan — see
+> [`docs/PLAN.md`](docs/PLAN.md).
+>
+> **What works today (local dev):** two humans in separate browsers co-steer one live agent
+> session against a real coding agent over ACP — shared durable timeline, Driver/Navigator/Observer
+> roles, mid-turn steering, hard-interrupt, and "take the wheel" handoff. The session runs on a
+> Cloudflare Durable Object (SQLite event log + hibernating WebSockets) with offset-based
+> late-joiner replay, and a per-session E2B microVM adapter behind the swappable sandbox interface.
+>
+> **Landed from the safety layer (Phase 2):** an append-only, hash-chained event log with a
+> server-side verification endpoint; per-role secret **redaction** before every broadcast
+> (Observers never see raw secrets); and **Driver-only approval gates** on side-effecting tools —
+> the agent blocks until the Driver approves.
+>
+> **Not yet:** authentication (v0 identity is unauthenticated query params — do not expose beyond
+> dev), session-scoped credential injection, checkpoint compaction, side-effect compensation, and
+> the red-team prompt-injection suite. Not production-ready.
 
 ## Why
 
