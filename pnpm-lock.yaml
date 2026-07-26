@@ -50,6 +50,16 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.13.3)
 
+  packages/redaction:
+    dependencies:
+      '@side-street/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@24.13.3)
+
   packages/sandbox:
     dependencies:
       '@side-street/acp-client':
