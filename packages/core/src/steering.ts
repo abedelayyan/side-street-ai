@@ -81,8 +81,11 @@ export class SteeringController {
     if (!canSuggest(participant.role)) {
       return { accepted: false, reason: "observers are read-only" };
     }
-    const isDriver = canSteer(participant.role) && participant.id === this.driverId;
-    if (canSteer(participant.role) && participant.id !== this.driverId) {
+    // Authority follows the wheel, not the join-time role: a navigator who
+    // legitimately claimed a freed wheel IS the Driver ("at most one holds
+    // the wheel"). Role only gates what can be attempted at all.
+    const isDriver = participant.id === this.driverId;
+    if (canSteer(participant.role) && !isDriver) {
       return { accepted: false, reason: "not the current driver — take the wheel first" };
     }
     if (message.delivery === "interrupt" && !isDriver) {
@@ -92,7 +95,10 @@ export class SteeringController {
     this.queue.push({
       id: message.id,
       authorId: participant.id,
-      role: participant.role,
+      // Effective role at submission: the wheel-holder's messages are
+      // authoritative (they lead delivery and reach the agent verbatim);
+      // log attribution is untouched — it keys on authorId.
+      role: isDriver ? "driver" : participant.role,
       text: message.text,
       queuedAt: now,
     });

@@ -187,6 +187,60 @@ describe("take the wheel", () => {
   });
 });
 
+describe("authority follows the wheel (exit-benchmark regression)", () => {
+  /** The driver leaves; the navigator legitimately claims the freed wheel. */
+  function navigatorAtTheWheel(): SteeringController {
+    const c = controllerWithDriver("alice");
+    c.releaseWheel("alice");
+    expect(c.handoff(bob, "bob")).toEqual({ ok: true });
+    return c;
+  }
+
+  it("lets the wheel-holding navigator start a turn on an idle agent", () => {
+    const c = navigatorAtTheWheel();
+    const result = c.submit(bob, msg("run the tests"), 1);
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(deliveredTexts(result.effects)).toEqual(["run the tests"]);
+    }
+  });
+
+  it("delivers the wheel-holder's messages as authoritative, not suggestions", () => {
+    const c = navigatorAtTheWheel();
+    const result = c.submit(bob, msg("run the tests"), 1);
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      const delivered = result.effects.flatMap((e) => (e.kind === "deliver" ? e.messages : []));
+      expect(delivered[0]?.role).toBe("driver");
+    }
+  });
+
+  it("lets the wheel-holding navigator hard-interrupt a running turn", () => {
+    const c = navigatorAtTheWheel();
+    c.submit(bob, msg("start"), 1);
+    c.onTurnStarted();
+    const result = c.submit(bob, msg("stop!", "interrupt"), 2);
+    expect(result).toEqual({ accepted: true, effects: [{ kind: "cancel_turn" }] });
+  });
+
+  it("drains the wheel-holder's queued message when the turn ends", () => {
+    const c = navigatorAtTheWheel();
+    c.submit(bob, msg("start"), 1);
+    c.onTurnStarted();
+    c.submit(bob, msg("next task"), 2);
+    expect(deliveredTexts(c.onTurnEnded())).toEqual(["next task"]);
+  });
+
+  it("still rejects a driver-role participant who does not hold the wheel", () => {
+    const c = navigatorAtTheWheel();
+    const result = c.submit(alice, msg("my wheel now?"), 1);
+    expect(result).toEqual({
+      accepted: false,
+      reason: "not the current driver — take the wheel first",
+    });
+  });
+});
+
 describe("state round-trip", () => {
   it("restores queue, phase, and driver from a snapshot", () => {
     const c = controllerWithDriver();
