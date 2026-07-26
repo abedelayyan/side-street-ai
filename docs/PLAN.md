@@ -192,7 +192,7 @@ _Goal: the session layer is trustworthy enough to hold real credentials in front
 - [ ] Checkpointing + compaction: periodic session snapshots so late joiners load checkpoint + tail, not thousands of events
 - [ ] Compensation framework for side-effecting tools: idempotency keys, replay-or-fork decision on restore
 - [ ] Reconnect hardening: tab-switch, multi-device, network-drop resume from offset — explicitly tested
-- [ ] Red-team suite as CI fixtures: prompt-injection attempts via (a) a steerer and (b) a poisoned repo file
+- [x] Red-team suite as CI fixtures: prompt-injection attempts via (a) a steerer and (b) a poisoned repo file — `packages/session-do/test/red-team.test.ts`, permanent in CI and never weakened to make a build pass. It assumes injection already succeeded (we don't own the agent, so we can't test its resistance) and asserts the layer we own holds: no secret reaches an Observer live or on replay, no non-Driver gains authority or approves a tool, and neither a viewer nor the sandbox can forge another party's attribution. Driving the fixtures through a live agent in a genuinely poisoned repo comes with the phase exit benchmark
 
 **Exit benchmark:** the red-team suite passes — no injection path exfiltrates a secret to an
 Observer; a session survives DO eviction, sandbox pause/resume, and 24h of wall-clock time

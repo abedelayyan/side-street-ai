@@ -1,11 +1,13 @@
 export { canonicalStringify, type JsonValue } from "./canonical-json.js";
 export {
   SCHEMA_VERSION,
+  agentEventBodySchema,
   eventBodySchema,
   permissionOptionSchema,
   permissionOutcomeSchema,
   signedEventSchema,
   unsignedEventSchema,
+  type AgentEventBody,
   type EventBody,
   type EventType,
   type PermissionOption,

@@ -3,11 +3,11 @@
  * actor can append them to the log without knowing ACP shapes.
  */
 
-import type { EventBody } from "@side-street/core";
+import type { AgentEventBody, EventBody } from "@side-street/core";
 import type { SessionUpdate, StopReason } from "./protocol.js";
 
 /** Returns null for update kinds that don't map to a logged event (yet). */
-export function toEventBody(update: SessionUpdate): EventBody | null {
+export function toEventBody(update: SessionUpdate): AgentEventBody | null {
   switch (update.sessionUpdate) {
     case "agent_message_chunk":
       return { type: "agent_message_chunk", payload: { text: update.content.text } };

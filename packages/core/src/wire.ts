@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 import {
-  eventBodySchema,
+  agentEventBodySchema,
   permissionOptionSchema,
   permissionOutcomeSchema,
   signedEventSchema,
@@ -63,7 +63,10 @@ export type ServerFrame = z.infer<typeof serverFrameSchema>;
 
 // Agent bridge → server
 export const agentFrameSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("agent_event"), body: eventBodySchema }),
+  // Only agent-authored bodies: the sandbox is the least trustworthy speaker in
+  // the session (a prompt injection lands there first), so it cannot submit a
+  // human's message or a control handoff into the attributed log.
+  z.object({ type: z.literal("agent_event"), body: agentEventBodySchema }),
   z.object({
     type: z.literal("turn_ended"),
     stopReason: z.enum(["end_turn", "max_tokens", "refusal", "cancelled"]),

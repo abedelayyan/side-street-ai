@@ -122,7 +122,8 @@ role — the Observer floor applied to all.
 Connected by the sandbox-side ACP bridge. Server → bridge frames: `prompt` (attributed
 `messages` to deliver to the agent), `cancel` (hard-interrupt), and `permission_decision`
 (`requestId`, `outcome` — the Driver's answer to relay to the ACP agent). Bridge → server
-frames: `agent_event` (a translated event body to append), `turn_ended` (`stopReason`),
+frames: `agent_event` (an agent-authored event body to append — `agent_message_chunk`,
+`tool_call`, `tool_call_update`, and nothing else), `turn_ended` (`stopReason`),
 `permission_request` (`requestId`, `toolCallId`, `title`, `options[]` — the agent is asking
 to run a side-effecting tool), and `register_secrets` (`values[]`, ≤ 64). Server→bridge frames
 emitted while the bridge is disconnected are buffered durably and flushed in order on
@@ -137,6 +138,12 @@ sends them to the agent**. They stay in the redaction set for the session's life
 grant's: a credential echoed after expiry is still a secret in front of everyone watching.
 The sandbox side learns which of its environment values are secret from the
 `SIDE_STREET_SECRET_ENV` boot variable, which names the injected keys.
+
+**Author restriction**: the sandbox is the least trustworthy speaker in a session — a prompt
+injection lands there first, and an injected agent controls the process holding this socket.
+It may therefore only submit bodies an agent authors. A `human_message`, `control_handoff`,
+or `role_changed` arriving here is rejected as an invalid frame, so nothing the agent says
+can forge another party's attribution in the log (PLAN.md invariant 2).
 
 **Approval gates**: a `permission_request` from the agent is logged and broadcast, then held
 pending — nothing runs until the **Driver** (the wheel-holder) sends a `decide` frame. A

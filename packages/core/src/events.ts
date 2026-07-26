@@ -31,6 +31,43 @@ export const permissionOptionSchema = z.object({
 });
 export type PermissionOption = z.infer<typeof permissionOptionSchema>;
 
+const agentMessageChunkSchema = z.object({
+  type: z.literal("agent_message_chunk"),
+  payload: z.object({ text: z.string() }),
+});
+
+const toolCallSchema = z.object({
+  type: z.literal("tool_call"),
+  payload: z.object({
+    toolCallId: z.string().min(1),
+    title: z.string().min(1),
+    status: toolCallStatusSchema,
+  }),
+});
+
+const toolCallUpdateSchema = z.object({
+  type: z.literal("tool_call_update"),
+  payload: z.object({
+    toolCallId: z.string().min(1),
+    status: toolCallStatusSchema,
+    output: z.string().optional(),
+  }),
+});
+
+/**
+ * The bodies an agent may author. Everything else in the log describes a human
+ * or the session itself, so the agent socket cannot submit it — a
+ * prompt-injected agent that controls its own sandbox would otherwise be able
+ * to forge a control handoff or a human's message into the attributed log
+ * (PLAN.md invariant 2: every event carries a truthful author identity).
+ */
+export const agentEventBodySchema = z.discriminatedUnion("type", [
+  agentMessageChunkSchema,
+  toolCallSchema,
+  toolCallUpdateSchema,
+]);
+export type AgentEventBody = z.infer<typeof agentEventBodySchema>;
+
 /**
  * Discriminated union of event bodies. Extend by adding variants; never
  * repurpose an existing `type` — replayability of old logs depends on it.
@@ -64,26 +101,9 @@ export const eventBodySchema = z.discriminatedUnion("type", [
     type: z.literal("control_handoff"),
     payload: z.object({ fromParticipantId: z.string().min(1), toParticipantId: z.string().min(1) }),
   }),
-  z.object({
-    type: z.literal("agent_message_chunk"),
-    payload: z.object({ text: z.string() }),
-  }),
-  z.object({
-    type: z.literal("tool_call"),
-    payload: z.object({
-      toolCallId: z.string().min(1),
-      title: z.string().min(1),
-      status: toolCallStatusSchema,
-    }),
-  }),
-  z.object({
-    type: z.literal("tool_call_update"),
-    payload: z.object({
-      toolCallId: z.string().min(1),
-      status: toolCallStatusSchema,
-      output: z.string().optional(),
-    }),
-  }),
+  agentMessageChunkSchema,
+  toolCallSchema,
+  toolCallUpdateSchema,
   z.object({
     type: z.literal("human_message"),
     payload: z.object({
