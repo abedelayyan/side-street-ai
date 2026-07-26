@@ -116,6 +116,12 @@ Connected by the sandbox-side ACP bridge. Server → bridge frames: `prompt` (at
 and cancel frames emitted while the bridge is disconnected are buffered durably and flushed
 in order on (re)connect.
 
+### `GET /session/:id/verify` — chain verification
+
+Re-verifies the full hash chain server-side and returns the result
+(`{ valid: true, length }`, or `{ valid: false, firstInvalidSeq, reason }`), so any client or
+auditor can check the log's integrity without downloading it.
+
 ### `GET /session/:id/events?from=N` — replay
 
 Returns `{ events: [...] }` — the ordered tail with `seq >= N`. A late joiner connects the

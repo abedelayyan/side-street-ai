@@ -8,7 +8,7 @@ import { SessionDurableObject, type Env } from "./session-do.js";
 export { SessionDurableObject };
 export type { Env };
 
-const SESSION_PATH = /^\/session\/([A-Za-z0-9_-]{1,64})\/(events|ws|agent)$/;
+const SESSION_PATH = /^\/session\/([A-Za-z0-9_-]{1,64})\/(events|verify|ws|agent)$/;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

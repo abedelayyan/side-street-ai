@@ -196,6 +196,10 @@ describe("replay", () => {
     expect(events.length).toBeGreaterThanOrEqual(3);
     expect(await verifyChain(events)).toEqual({ valid: true, length: events.length });
 
+    const verifyResponse = await SELF.fetch(`${BASE}/session/${sessionId}/verify`);
+    expect(verifyResponse.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(await verifyResponse.json()).toEqual({ valid: true, length: events.length });
+
     const tailResponse = await SELF.fetch(`${BASE}/session/${sessionId}/events?from=2`);
     const { events: tail } = (await tailResponse.json()) as { events: SignedEvent[] };
     expect(tail).toEqual(events.filter((e) => e.seq >= 2));

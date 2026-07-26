@@ -10,6 +10,7 @@ import {
   agentFrameSchema,
   joinParamsSchema,
   signedEventSchema,
+  verifyChain,
   viewerFrameSchema,
   type AgentServerFrame,
   type ServerFrame,
@@ -132,6 +133,12 @@ export class SessionDurableObject extends DurableObject<Env> {
         return Response.json({ error: "invalid 'from' offset" }, { status: 400, headers: cors });
       }
       return Response.json({ events: await this.actor.replayFrom(fromSeq) }, { headers: cors });
+    }
+    if (url.pathname.endsWith("/verify")) {
+      // Tamper-evidence surface: re-verifies the full chain server-side so
+      // any client (or auditor) can check the log without downloading it.
+      const result = await verifyChain(await this.actor.replayFrom(0));
+      return Response.json(result, { headers: { "Access-Control-Allow-Origin": "*" } });
     }
     if (url.pathname.endsWith("/ws")) {
       return this.acceptViewer(request, url);
