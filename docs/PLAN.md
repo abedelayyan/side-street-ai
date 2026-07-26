@@ -186,8 +186,8 @@ signal (see §8) — surface it immediately, do not push through.**
 _Goal: the session layer is trustworthy enough to hold real credentials in front of multiple viewers._
 
 - [x] Hash-chained attributed event log wired end-to-end (Phase 0 utilities → production path) + verification endpoint (`GET /session/:id/verify`)
-- [x] `redaction`: secret scanning on every outbound event; per-role redaction; Observers never see raw secrets — `@side-street/redaction` wired into the DO broadcast path (default policy redacts for all roles; `knownSecrets` feeds in once credential injection lands)
-- [ ] Session-scoped, short-lived credentials injected at sandbox boot; never in prompts; automatic expiry
+- [x] `redaction`: secret scanning on every outbound event; per-role redaction; Observers never see raw secrets — `@side-street/redaction` wired into the DO broadcast **and replay** paths (default policy redacts for all roles; injected credentials feed `knownSecrets` via the bridge's `register_secrets` frame)
+- [x] Session-scoped, short-lived credentials injected at sandbox boot; never in prompts; automatic expiry — `CredentialIssuer` grants are injected only as sandbox boot env, expire on both the launcher's timer and the provider's own deadline, and are declared to the redaction pass so an echoed credential never reaches a viewer (the shipped issuer is the static dev/self-host one; a minting issuer — GitHub App, STS — drops in behind the interface)
 - [x] ACP `request_permission` approval gates on side-effecting tools, surfaced to the Driver only — bridge routes ACP requests through the session; only the wheel-holding Driver decides; the tool stays blocked until then; Driver approve/deny UI in `web`
 - [ ] Checkpointing + compaction: periodic session snapshots so late joiners load checkpoint + tail, not thousands of events
 - [ ] Compensation framework for side-effecting tools: idempotency keys, replay-or-fork decision on restore

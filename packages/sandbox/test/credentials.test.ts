@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_CREDENTIAL_TTL_MS,
+  SECRET_ENV_MANIFEST,
   launchSessionSandbox,
+  secretsFromEnv,
   staticCredentialIssuer,
   type CredentialIssuer,
 } from "../src/credentials.js";
@@ -75,6 +77,24 @@ describe("staticCredentialIssuer", () => {
   });
 });
 
+describe("secretsFromEnv", () => {
+  it("resolves the manifest the launcher injected, and nothing else", () => {
+    expect(
+      secretsFromEnv({
+        [SECRET_ENV_MANIFEST]: "GITHUB_TOKEN, MISSING ,AWS_SESSION_TOKEN",
+        GITHUB_TOKEN: "t0ken",
+        AWS_SESSION_TOKEN: "aws-t0ken",
+        NOT_DECLARED: "public",
+      }),
+    ).toEqual(["t0ken", "aws-t0ken"]);
+  });
+
+  it("is empty when nothing was injected", () => {
+    expect(secretsFromEnv({})).toEqual([]);
+    expect(secretsFromEnv({ [SECRET_ENV_MANIFEST]: "" })).toEqual([]);
+  });
+});
+
 describe("launchSessionSandbox", () => {
   it("injects the grant at boot, over any non-secret env, and hands the provider the deadline", async () => {
     const provider = recordingProvider();
@@ -93,7 +113,12 @@ describe("launchSessionSandbox", () => {
     expect(provider.launches[0]).toEqual({
       sessionId: "s1",
       repoUrl: "https://example.test/repo.git",
-      env: { NODE_ENV: "test", SIDE_STREET_ROLE: "grant", GITHUB_TOKEN: "t0ken" },
+      env: {
+        NODE_ENV: "test",
+        SIDE_STREET_ROLE: "grant",
+        GITHUB_TOKEN: "t0ken",
+        [SECRET_ENV_MANIFEST]: "GITHUB_TOKEN,SIDE_STREET_ROLE",
+      },
       ttlMs: 30_000,
     });
     expect(sandbox.expiresAt).toBe(30_000);

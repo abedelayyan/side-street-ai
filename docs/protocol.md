@@ -122,10 +122,21 @@ role — the Observer floor applied to all.
 Connected by the sandbox-side ACP bridge. Server → bridge frames: `prompt` (attributed
 `messages` to deliver to the agent), `cancel` (hard-interrupt), and `permission_decision`
 (`requestId`, `outcome` — the Driver's answer to relay to the ACP agent). Bridge → server
-frames: `agent_event` (a translated event body to append), `turn_ended` (`stopReason`), and
+frames: `agent_event` (a translated event body to append), `turn_ended` (`stopReason`),
 `permission_request` (`requestId`, `toolCallId`, `title`, `options[]` — the agent is asking
-to run a side-effecting tool). Server→bridge frames emitted while the bridge is disconnected
-are buffered durably and flushed in order on (re)connect.
+to run a side-effecting tool), and `register_secrets` (`values[]`, ≤ 64). Server→bridge frames
+emitted while the bridge is disconnected are buffered durably and flushed in order on
+(re)connect.
+
+**Credential declaration**: `register_secrets` carries the values of the session-scoped
+credentials injected into the sandbox at boot, so the redaction pass can strip them by exact
+value rather than by pattern guess. The bridge sends it as its first frame, before any agent
+output could echo one. The session stores them durably (hibernation must not lose them — the
+leak is an unredacted broadcast) and **never appends them to the log, broadcasts them, or
+sends them to the agent**. They stay in the redaction set for the session's life, not the
+grant's: a credential echoed after expiry is still a secret in front of everyone watching.
+The sandbox side learns which of its environment values are secret from the
+`SIDE_STREET_SECRET_ENV` boot variable, which names the injected keys.
 
 **Approval gates**: a `permission_request` from the agent is logged and broadcast, then held
 pending — nothing runs until the **Driver** (the wheel-holder) sends a `decide` frame. A
@@ -145,6 +156,10 @@ auditor can check the log's integrity without downloading it.
 Returns `{ events: [...] }` — the ordered tail with `seq >= N`. A late joiner connects the
 viewer socket, reads `welcome.lastSeq`, fetches the tail it's missing, then applies live
 `event` frames (deduplicating by `seq`).
+
+Replay is an outbound path, so it runs the same redaction pass. The endpoint carries no
+authenticated identity, so it returns the Observer floor — the strictest view — to whoever
+asks; a per-role replay view waits on the Phase 2 authentication deliverable.
 
 ## ACP mapping (informative)
 

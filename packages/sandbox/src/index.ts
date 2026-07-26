@@ -7,7 +7,9 @@ export {
 } from "./bridge.js";
 export {
   DEFAULT_CREDENTIAL_TTL_MS,
+  SECRET_ENV_MANIFEST,
   launchSessionSandbox,
+  secretsFromEnv,
   staticCredentialIssuer,
   type CredentialGrant,
   type CredentialIssuer,

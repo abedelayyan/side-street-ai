@@ -49,6 +49,12 @@ export interface AgentBridgeOptions {
   agent: PromptingAgent;
   /** The ACP session id obtained from session/new. */
   acpSessionId: string;
+  /**
+   * Values of the credentials injected into this sandbox, declared to the
+   * session so the redaction pass can strip them by exact value. Sent as the
+   * bridge's first frame — before any agent output could carry one.
+   */
+  secrets?: readonly string[];
   onError?(error: Error): void;
 }
 
@@ -61,6 +67,9 @@ export class AgentBridge {
   private nextRequestId = 1;
 
   constructor(private readonly options: AgentBridgeOptions) {
+    if (options.secrets !== undefined && options.secrets.length > 0) {
+      this.send({ type: "register_secrets", values: [...options.secrets] });
+    }
     options.socket.onFrame((raw) => {
       this.handleFrame(raw);
     });
