@@ -1,4 +1,4 @@
-import { SELF } from "cloudflare:test";
+import { SELF, env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { verifyChain, type SignedEvent } from "@side-street/core";
 import { CHECKPOINT_EVERY } from "@side-street/session";
@@ -307,6 +307,95 @@ describe("replay", () => {
     if (body.type !== "checkpoint") throw new Error("expected a checkpoint");
     expect(body.payload.roster).toEqual([
       { participantId: "alice", displayName: "alice", role: "driver" },
+    ]);
+  });
+});
+
+/**
+ * Resolve once the Durable Object has processed socket closes down to `count`
+ * open sockets. A close is asynchronous and — when the participant has another
+ * device still attached — broadcasts nothing to wait on, so this polls the
+ * condition rather than sleeping a guessed interval.
+ */
+async function waitForOpenSockets(sessionId: string, count: number): Promise<void> {
+  const stub = env.SESSIONS.get(env.SESSIONS.idFromName(sessionId));
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const open = await runInDurableObject(stub, (_instance, state) => state.getWebSockets().length);
+    if (open === count) {
+      return;
+    }
+    await scheduler.wait(5);
+  }
+  throw new Error(`timed out waiting for ${count} open socket(s)`);
+}
+
+describe("reconnect", () => {
+  it("keeps a multi-device participant present until their last socket closes", async () => {
+    const sessionId = freshSession();
+    const tab1 = await connect(viewerPath(sessionId, "alice", "driver"));
+    await tab1.waitFor((f) => f["type"] === "welcome");
+    const tab2 = await connect(viewerPath(sessionId, "alice", "driver"));
+    await tab2.waitFor((f) => f["type"] === "welcome");
+    const bob = await connect(viewerPath(sessionId, "bob", "observer"));
+    await bob.waitFor((f) => f["type"] === "welcome");
+
+    tab2.ws.send(JSON.stringify({ type: "handoff", toParticipantId: "alice" }));
+    await bob.waitFor(isEventOf("control_handoff"));
+
+    // One device goes away — a phone locking, a laptop lid closing.
+    tab1.ws.close();
+    await waitForOpenSockets(sessionId, 2);
+    tab2.ws.send(
+      JSON.stringify({ type: "steer", id: "m1", text: "still here", delivery: "queue" }),
+    );
+    const steered = await bob.waitFor(isEventOf("human_message"));
+    // She still holds the wheel from the other device, so the message lands.
+    expect((steered["event"] as { authorId: string }).authorId).toBe("alice");
+    expect(bob.frames.filter(isEventOf("participant_left"))).toHaveLength(0);
+
+    tab2.ws.close();
+    await bob.waitFor(isEventOf("participant_left"));
+    const replay = await SELF.fetch(`${BASE}/session/${sessionId}/events?from=0`);
+    const { events } = (await replay.json()) as { events: SignedEvent[] };
+    expect(events.filter((e) => e.body.type === "participant_left")).toHaveLength(1);
+  });
+
+  it("serves a reconnecting viewer exactly what it missed while gone", async () => {
+    const sessionId = freshSession();
+    const alice = await connect(viewerPath(sessionId, "alice", "driver"));
+    await alice.waitFor((f) => f["type"] === "welcome");
+    alice.ws.send(JSON.stringify({ type: "handoff", toParticipantId: "alice" }));
+    const handoff = await alice.waitFor(isEventOf("control_handoff"));
+    const seen = (handoff["event"] as SignedEvent).seq;
+    const seenHash = (handoff["event"] as SignedEvent).hash;
+
+    // Network drop, then the session moves on without her.
+    alice.ws.close();
+    await waitForOpenSockets(sessionId, 0);
+    const back = await connect(viewerPath(sessionId, "alice", "driver"));
+    await back.waitFor((f) => f["type"] === "welcome");
+    const agent = await connect(`/session/${sessionId}/agent`);
+    agent.ws.send(
+      JSON.stringify({
+        type: "agent_event",
+        body: { type: "agent_message_chunk", payload: { text: "kept working" } },
+      }),
+    );
+    await back.waitFor(isEventOf("agent_message_chunk"));
+
+    const response = await SELF.fetch(`${BASE}/session/${sessionId}/events?from=${seen + 1}`);
+    const { events: delta } = (await response.json()) as { events: SignedEvent[] };
+    // The delta is a verifiable continuation of what she already had — no
+    // refetch of the history, no gap in the chain.
+    expect(await verifyChain(delta, seenHash)).toEqual({ valid: true, length: delta.length });
+    // ponytail: a drop that empties a participant's last socket is a
+    // departure, so reconnecting is a fresh join and the wheel was freed in
+    // between. If blips prove disruptive, hold the departure behind a DO
+    // alarm and cancel it on reconnect.
+    expect(delta.map((e) => e.body.type)).toEqual([
+      "participant_left",
+      "participant_joined",
+      "agent_message_chunk",
     ]);
   });
 });

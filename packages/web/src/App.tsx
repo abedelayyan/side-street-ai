@@ -93,6 +93,23 @@ function Session({ details, onLeave }: { details: JoinDetails; onLeave(): void }
     };
   }, [details]);
 
+  // The client retries on its own ladder; these are the two moments the
+  // browser knows a retry is worth attempting right now. Timers in a
+  // background tab are throttled, so a foregrounded tab can be sitting on a
+  // long-expired backoff.
+  useEffect(() => {
+    const onOnline = (): void => clientRef.current?.resume();
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") clientRef.current?.resume();
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
   const steer = useCallback((text: string, delivery: "queue" | "interrupt") => {
     setNotice(null);
     clientRef.current?.steer(text, delivery);

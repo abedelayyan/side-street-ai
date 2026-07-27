@@ -87,6 +87,14 @@ itself is never compacted, only what a client has to read. `checkpoint.summary` 
 from counts alone and never interpolates participant-supplied text, so it can be rendered as
 a system line without laundering an injected string into one.
 
+**Reconnect.** A socket the client did not close itself is retried on a capped backoff
+(250 ms → 10 s, reset by each successful `welcome`), resuming from the client's cursor; the
+browser's `online` and `visibilitychange` events short-circuit the remaining wait, since a
+backgrounded tab's timers are throttled. A participant is present as long as **any** of their
+sockets is open, so closing one device logs no departure; `participant_left` is written when
+the last one closes. A drop that outlives the retries is therefore a real departure — the
+wheel is freed and reconnecting is a fresh join.
+
 ## Transport (Durable Object wire protocol)
 
 Each session lives at `/session/:id` on the Worker; the id maps to one Durable Object.

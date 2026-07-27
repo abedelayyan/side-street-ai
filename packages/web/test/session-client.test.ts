@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GENESIS_HASH, appendEvent, type SignedEvent } from "@side-street/core";
 import { SessionClient, type WebSocketLike } from "../src/lib/session-client.js";
 
@@ -41,7 +41,9 @@ async function makeLog(count: number): Promise<SignedEvent[]> {
 }
 
 interface Harness {
+  /** The most recently created socket — a reconnect makes a new one. */
   socket: FakeSocket;
+  sockets: FakeSocket[];
   client: SessionClient;
   received: SignedEvent[];
   statuses: string[];
@@ -51,7 +53,7 @@ interface Harness {
 }
 
 function harness(): Harness {
-  const socket = new FakeSocket();
+  const sockets: FakeSocket[] = [];
   const received: SignedEvent[] = [];
   const statuses: string[] = [];
   const rejections: Array<{ messageId: string; reason: string }> = [];
@@ -67,7 +69,11 @@ function harness(): Harness {
     onEvent: (e) => received.push(e),
     onStatus: (s) => statuses.push(s),
     onRejection: (messageId, reason) => rejections.push({ messageId, reason }),
-    createSocket: () => socket,
+    createSocket: () => {
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      return socket;
+    },
     fetchFn: (url) => {
       fetches.push(url);
       return new Promise((resolve) => {
@@ -77,7 +83,10 @@ function harness(): Harness {
   });
   client.connect();
   return {
-    socket,
+    get socket() {
+      return sockets[sockets.length - 1]!;
+    },
+    sockets,
     client,
     received,
     statuses,
@@ -129,21 +138,6 @@ describe("SessionClient", () => {
     expect(h.statuses.at(-1)).toBe("live");
   });
 
-  it("resumes a reconnect from the cursor, fetching only the delta", async () => {
-    const h = harness();
-    const log = await makeLog(5);
-    h.socket.receive({ type: "welcome", participantId: "alice", role: "driver", lastSeq: 2 });
-    h.resolveReplay(log.slice(0, 3));
-    await flush();
-
-    h.client.connect();
-    h.socket.receive({ type: "welcome", participantId: "alice", role: "driver", lastSeq: 4 });
-    expect(h.fetches[1]).toBe("http://worker.test/session/s1/events?from=3");
-    h.resolveReplay(log.slice(3));
-    await flush();
-    expect(h.received.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
-  });
-
   it("routes steering frames out and rejections back", async () => {
     const h = harness();
     const id = h.client.steer("fix it", "queue");
@@ -181,5 +175,97 @@ describe("SessionClient", () => {
     h.resolveReplay(log);
     await flush();
     expect(h.received[0]?.prevHash).toBe(GENESIS_HASH);
+  });
+});
+
+describe("SessionClient reconnect", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const tick = async (ms: number): Promise<void> => {
+    await vi.advanceTimersByTimeAsync(ms);
+  };
+
+  /** Connect and replay a log of `count` events, leaving the client live. */
+  async function live(h: Harness, count: number): Promise<SignedEvent[]> {
+    const log = await makeLog(count);
+    h.socket.receive({
+      type: "welcome",
+      participantId: "alice",
+      role: "driver",
+      lastSeq: count - 1,
+    });
+    h.resolveReplay(log);
+    await tick(0);
+    return log;
+  }
+
+  it("retries a dropped socket and resumes from the cursor", async () => {
+    const h = harness();
+    const log = await makeLog(5);
+    h.socket.receive({ type: "welcome", participantId: "alice", role: "driver", lastSeq: 2 });
+    h.resolveReplay(log.slice(0, 3));
+    await tick(0);
+
+    // The network drops. Nothing the viewer did — so the client comes back.
+    h.socket.close();
+    expect(h.statuses.at(-1)).toBe("closed");
+    await tick(250);
+    expect(h.sockets).toHaveLength(2);
+
+    h.socket.receive({ type: "welcome", participantId: "alice", role: "driver", lastSeq: 4 });
+    // Only the delta: the events seen before the drop are not refetched.
+    expect(h.fetches[1]).toBe("http://worker.test/session/s1/events?from=3");
+    h.resolveReplay(log.slice(3));
+    await tick(0);
+    expect(h.received.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
+    expect(h.statuses.at(-1)).toBe("live");
+  });
+
+  it("backs off between failed attempts, and starts over once one succeeds", async () => {
+    const h = harness();
+    await live(h, 1);
+
+    h.socket.close();
+    await tick(250);
+    expect(h.sockets).toHaveLength(2);
+
+    // That attempt dies before a welcome: the next wait is longer.
+    h.socket.close();
+    await tick(250);
+    expect(h.sockets).toHaveLength(2);
+    await tick(750);
+    expect(h.sockets).toHaveLength(3);
+
+    // A welcome proves the connection works, so the ladder resets.
+    h.socket.receive({ type: "welcome", participantId: "alice", role: "driver", lastSeq: 0 });
+    h.socket.close();
+    await tick(250);
+    expect(h.sockets).toHaveLength(4);
+  });
+
+  it("resume() reconnects immediately instead of waiting out the backoff", async () => {
+    const h = harness();
+    await live(h, 1);
+    h.socket.close();
+
+    // A backgrounded tab can be sitting on a throttled timer; the foreground
+    // event is better information than the ladder.
+    h.client.resume();
+    expect(h.sockets).toHaveLength(2);
+    // The pending retry was cancelled, not left to fire a second socket.
+    await tick(10_000);
+    expect(h.sockets).toHaveLength(2);
+  });
+
+  it("does not retry — or resume — after the viewer leaves", async () => {
+    const h = harness();
+    await live(h, 1);
+
+    h.client.close();
+    await tick(10_000);
+    h.client.resume();
+    expect(h.sockets).toHaveLength(1);
+    expect(h.statuses.at(-1)).toBe("closed");
   });
 });
