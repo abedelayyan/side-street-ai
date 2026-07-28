@@ -252,6 +252,12 @@ select {
   font-size: 13px;
 }
 
+.approval-repeat {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 13px;
+}
+
 .session footer {
   display: flex;
   gap: 8px;

@@ -31,6 +31,8 @@ export interface PendingPermission {
   requestId: string;
   title: string;
   options: PermissionOption[];
+  /** Times this session already approved this same step; > 0 is a repeat. */
+  priorAttempts: number;
 }
 
 export interface DerivedSession {
@@ -155,6 +157,7 @@ export function deriveSession(events: readonly SignedEvent[]): DerivedSession {
           requestId: body.payload.requestId,
           title: body.payload.title,
           options: body.payload.options,
+          priorAttempts: body.payload.priorAttempts,
         });
         timeline.push({
           kind: "system",
@@ -188,6 +191,7 @@ export function deriveSession(events: readonly SignedEvent[]): DerivedSession {
             requestId: request.requestId,
             title: request.title,
             options: request.options,
+            priorAttempts: request.priorAttempts,
           });
         }
         // Mark the gap only when the checkpoint opens the stream — that is

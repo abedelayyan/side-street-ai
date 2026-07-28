@@ -111,12 +111,19 @@ describe("deriveSession", () => {
         toolCallId: "tc-1",
         title: "Run rm -rf build",
         options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+        stepId: "0123456789abcdef",
+        priorAttempts: 0,
       },
     };
     const requested = await log([{ authorId: "agent", body: request }]);
     const afterRequest = deriveSession(requested);
     expect(afterRequest.pendingPermissions).toEqual([
-      { requestId: "perm-1", title: "Run rm -rf build", options: request.payload.options },
+      {
+        requestId: "perm-1",
+        title: "Run rm -rf build",
+        options: request.payload.options,
+        priorAttempts: 0,
+      },
     ]);
     expect(afterRequest.timeline.at(-1)).toMatchObject({
       kind: "system",
@@ -156,6 +163,8 @@ describe("deriveSession", () => {
                 toolCallId: "tc-1",
                 title: "Run rm -rf build",
                 options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+                stepId: "0123456789abcdef",
+                priorAttempts: 1,
               },
             ],
           },
@@ -171,6 +180,9 @@ describe("deriveSession", () => {
     expect(derived.roster.map((p) => p.displayName)).toEqual(["Alice", "Bob"]);
     expect(derived.driverId).toBe("alice");
     expect(derived.pendingPermissions.map((p) => p.requestId)).toEqual(["perm-1"]);
+    // The repeat warning has to survive compaction too — it is the reason a
+    // late-joining Driver would hesitate before approving.
+    expect(derived.pendingPermissions[0]?.priorAttempts).toBe(1);
     expect(derived.timeline[0]).toMatchObject({
       kind: "system",
       text: "⋯ 100 earlier events (seq 0–99)",

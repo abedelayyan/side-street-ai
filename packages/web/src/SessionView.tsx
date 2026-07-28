@@ -156,6 +156,13 @@ function PermissionPrompt({
   return (
     <div className="approval">
       <span className="approval-title">🔒 Agent wants to: {request.title}</span>
+      {request.priorAttempts > 0 && (
+        <span className="approval-repeat">
+          ⚠ this session already ran this exact step{" "}
+          {request.priorAttempts === 1 ? "once" : `${request.priorAttempts} times`} — approving
+          again runs it again
+        </span>
+      )}
       {isDriver ? (
         <div className="approval-actions">
           {request.options.map((option) => (

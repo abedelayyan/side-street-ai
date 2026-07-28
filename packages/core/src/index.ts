@@ -1,10 +1,12 @@
 export { canonicalStringify, type JsonValue } from "./canonical-json.js";
+export { idempotencyKeySchema, stepIdFor, type IdempotencyKey } from "./compensation.js";
 export {
   SCHEMA_VERSION,
   agentEventBodySchema,
   eventBodySchema,
   permissionOptionSchema,
   permissionOutcomeSchema,
+  permissionRequestPayloadSchema,
   signedEventSchema,
   unsignedEventSchema,
   type AgentEventBody,
@@ -12,6 +14,7 @@ export {
   type EventType,
   type PermissionOption,
   type PermissionOutcome,
+  type PermissionRequestPayload,
   type SignedEvent,
   type ToolCallStatus,
   type UnsignedEvent,

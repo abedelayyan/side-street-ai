@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  stepIdFor,
   verifyChain,
   type PermissionOutcome,
   type QueuedMessage,
@@ -252,7 +253,10 @@ describe("permission gates", () => {
   it("logs and broadcasts a permission request, holding it pending", async () => {
     const { store, broadcaster, agent, actor } = await seededSession();
     await actor.onPermissionRequest(REQUEST);
-    expect(store.events.at(-1)?.body).toEqual({ type: "permission_request", payload: REQUEST });
+    expect(store.events.at(-1)?.body).toEqual({
+      type: "permission_request",
+      payload: { ...REQUEST, stepId: await stepIdFor(REQUEST.title), priorAttempts: 0 },
+    });
     expect(broadcaster.broadcasts.at(-1)?.body.type).toBe("permission_request");
     // Nothing runs until a decision arrives.
     expect(agent.permissionResponses).toEqual([]);
@@ -265,7 +269,15 @@ describe("permission gates", () => {
 
     expect(store.events.at(-1)?.body).toEqual({
       type: "permission_decision",
-      payload: { requestId: "perm-1", outcome: { kind: "selected", optionId: "allow" } },
+      payload: {
+        requestId: "perm-1",
+        outcome: { kind: "selected", optionId: "allow" },
+        idempotencyKey: {
+          sessionId: "sess-1",
+          stepId: await stepIdFor(REQUEST.title),
+          attempt: 1,
+        },
+      },
     });
     expect(agent.permissionResponses).toEqual([
       { requestId: "perm-1", outcome: { kind: "selected", optionId: "allow" } },
@@ -358,7 +370,9 @@ describe("checkpointing", () => {
           { participantId: "carol", displayName: "Carol", role: "observer" },
         ],
         driverId: "alice",
-        pendingPermissions: [REQUEST],
+        pendingPermissions: [
+          { ...REQUEST, stepId: await stepIdFor(REQUEST.title), priorAttempts: 0 },
+        ],
       },
     });
     expect(await verifyChain(store.events)).toEqual({ valid: true, length: store.events.length });
@@ -394,5 +408,85 @@ describe("checkpointing", () => {
     await revived.onAgentEvent({ type: "agent_message_chunk", payload: { text: "after" } });
     expect(store.events.filter((e) => e.body.type === "checkpoint")).toHaveLength(1);
     expect((await revived.replayFromCheckpoint())[0]?.seq).toBe(CHECKPOINT_EVERY);
+  });
+});
+
+describe("idempotency keys for approved steps", () => {
+  /** The same action, asked for again — a fresh requestId and toolCallId. */
+  function retryOf(request: PermissionRequest, n: number): PermissionRequest {
+    return { ...request, requestId: `perm-${n}`, toolCallId: `tc-${n}` };
+  }
+
+  it("counts a repeat of the same step as a new attempt", async () => {
+    const { store, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", { kind: "selected", optionId: "allow" });
+
+    // The agent asks for the same action again under new ids — a replayed
+    // turn, or an injected loop. It is the same step.
+    await actor.onPermissionRequest(retryOf(REQUEST, 2));
+    const request = store.events.at(-1)?.body;
+    if (request?.type !== "permission_request") throw new Error("expected a request");
+    expect(request.payload.priorAttempts).toBe(1);
+    expect(request.payload.stepId).toBe(await stepIdFor(REQUEST.title));
+
+    await actor.decide("alice", "perm-2", { kind: "selected", optionId: "allow" });
+    const decision = store.events.at(-1)?.body;
+    if (decision?.type !== "permission_decision") throw new Error("expected a decision");
+    expect(decision.payload.idempotencyKey).toEqual({
+      sessionId: "sess-1",
+      stepId: await stepIdFor(REQUEST.title),
+      attempt: 2,
+    });
+  });
+
+  it("keys a different action separately", async () => {
+    const { store, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", { kind: "selected", optionId: "allow" });
+
+    const other = { ...retryOf(REQUEST, 2), title: "Post a comment on issue #4" };
+    await actor.onPermissionRequest(other);
+    await actor.decide("alice", "perm-2", { kind: "selected", optionId: "allow" });
+    const decision = store.events.at(-1)?.body;
+    if (decision?.type !== "permission_decision") throw new Error("expected a decision");
+    expect(decision.payload.idempotencyKey).toEqual({
+      sessionId: "sess-1",
+      stepId: await stepIdFor(other.title),
+      attempt: 1,
+    });
+  });
+
+  it("burns no attempt on a denial — nothing ran", async () => {
+    const { store, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", { kind: "cancelled" });
+    const denial = store.events.at(-1)?.body;
+    if (denial?.type !== "permission_decision") throw new Error("expected a decision");
+    expect(denial.payload.idempotencyKey).toBeUndefined();
+
+    await actor.onPermissionRequest(retryOf(REQUEST, 2));
+    const request = store.events.at(-1)?.body;
+    if (request?.type !== "permission_request") throw new Error("expected a request");
+    expect(request.payload.priorAttempts).toBe(0);
+  });
+
+  it("remembers attempts across a snapshot restore", async () => {
+    const { store, broadcaster, agent, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", { kind: "selected", optionId: "allow" });
+
+    // The Durable Object hibernates and comes back. The step still ran once.
+    const revived = new SessionActor({ store, broadcaster, agent, now: () => 100 }, actor.snapshot);
+    await revived.onPermissionRequest(retryOf(REQUEST, 2));
+    const request = store.events.at(-1)?.body;
+    if (request?.type !== "permission_request") throw new Error("expected a request");
+    expect(request.payload.priorAttempts).toBe(1);
+
+    await revived.decide("alice", "perm-2", { kind: "selected", optionId: "allow" });
+    const decision = store.events.at(-1)?.body;
+    if (decision?.type !== "permission_decision") throw new Error("expected a decision");
+    expect(decision.payload.idempotencyKey?.attempt).toBe(2);
+    expect(decision.payload.idempotencyKey?.sessionId).toBe("sess-1");
   });
 });

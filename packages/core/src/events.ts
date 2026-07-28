@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import { idempotencyKeySchema } from "./compensation.js";
 import { roleSchema } from "./roles.js";
 
 export const SCHEMA_VERSION = 1;
@@ -37,12 +38,17 @@ const rosterEntrySchema = z.object({
   role: roleSchema,
 });
 
-const permissionRequestPayloadSchema = z.object({
+export const permissionRequestPayloadSchema = z.object({
   requestId: z.string().min(1),
   toolCallId: z.string().min(1),
   title: z.string().min(1),
   options: z.array(permissionOptionSchema).min(1),
+  /** Identifies the action being approved, across retries — see `stepIdFor`. */
+  stepId: z.string().min(1),
+  /** Times this session already approved this same step. > 0 means a repeat. */
+  priorAttempts: z.number().int().nonnegative(),
 });
+export type PermissionRequestPayload = z.infer<typeof permissionRequestPayloadSchema>;
 
 const agentMessageChunkSchema = z.object({
   type: z.literal("agent_message_chunk"),
@@ -124,6 +130,12 @@ export const eventBodySchema = z.discriminatedUnion("type", [
     payload: z.object({
       requestId: z.string().min(1),
       outcome: permissionOutcomeSchema,
+      /**
+       * Present exactly when the decision approves the step: the key that
+       * identifies this run of it. A denial runs nothing, so it burns no
+       * attempt.
+       */
+      idempotencyKey: idempotencyKeySchema.optional(),
     }),
   }),
   z.object({

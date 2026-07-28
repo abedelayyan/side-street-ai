@@ -8,9 +8,12 @@
 import {
   SteeringController,
   appendEvent,
+  stepIdFor,
   type EventBody,
+  type IdempotencyKey,
   type PermissionOption,
   type PermissionOutcome,
+  type PermissionRequestPayload,
   type Role,
   type SignedEvent,
   type SteeringEffect,
@@ -44,9 +47,13 @@ export interface SessionActorSnapshot {
   steering: SteeringState;
   roster: RosterEntry[];
   /** Permission requests awaiting a Driver decision — survives hibernation. */
-  pendingPermissions: PermissionRequest[];
+  pendingPermissions: PermissionRequestPayload[];
   /** Seq of the newest checkpoint event, or -1 if none has been written yet. */
   lastCheckpointSeq: number;
+  /** Approvals granted per `stepId`, i.e. the last attempt number issued. */
+  stepAttempts: Record<string, number>;
+  /** Session id, for the idempotency keys minted on approval. */
+  sessionId: string;
 }
 
 export interface PermissionRequest {
@@ -61,8 +68,10 @@ export type SteerInput = { id: string; text: string; delivery: "queue" | "interr
 export class SessionActor {
   private readonly steering: SteeringController;
   private readonly roster = new Map<string, RosterEntry>();
-  private readonly pendingPermissions: Map<string, PermissionRequest>;
+  private readonly pendingPermissions: Map<string, PermissionRequestPayload>;
   private lastCheckpointSeq: number;
+  private readonly stepAttempts: Record<string, number>;
+  private sessionId: string;
 
   constructor(
     private readonly deps: SessionActorDeps,
@@ -76,6 +85,8 @@ export class SessionActor {
       (snapshot?.pendingPermissions ?? []).map((request) => [request.requestId, request]),
     );
     this.lastCheckpointSeq = snapshot?.lastCheckpointSeq ?? -1;
+    this.stepAttempts = { ...snapshot?.stepAttempts };
+    this.sessionId = snapshot?.sessionId ?? "";
   }
 
   /** Serializable state for the wrapper to persist alongside the event log. */
@@ -85,6 +96,8 @@ export class SessionActor {
       roster: [...this.roster.values()],
       pendingPermissions: [...this.pendingPermissions.values()],
       lastCheckpointSeq: this.lastCheckpointSeq,
+      stepAttempts: { ...this.stepAttempts },
+      sessionId: this.sessionId,
     };
   }
 
@@ -93,6 +106,7 @@ export class SessionActor {
   }
 
   async start(sessionId: string, agent: string, sandboxProvider: string): Promise<void> {
+    this.sessionId = sessionId;
     await this.append("system", {
       type: "session_started",
       payload: { sessionId, agent, sandboxProvider },
@@ -195,16 +209,20 @@ export class SessionActor {
    * the load-bearing control against prompt injection).
    */
   async onPermissionRequest(request: PermissionRequest): Promise<void> {
-    this.pendingPermissions.set(request.requestId, request);
-    await this.append("agent", {
-      type: "permission_request",
-      payload: {
-        requestId: request.requestId,
-        toolCallId: request.toolCallId,
-        title: request.title,
-        options: request.options,
-      },
-    });
+    const stepId = await stepIdFor(request.title);
+    const payload: PermissionRequestPayload = {
+      requestId: request.requestId,
+      toolCallId: request.toolCallId,
+      title: request.title,
+      options: request.options,
+      stepId,
+      // Shown to the Driver: a step this session already ran is one the agent
+      // is asking to do twice, which is what a replayed or injected loop
+      // looks like from the outside.
+      priorAttempts: this.stepAttempts[stepId] ?? 0,
+    };
+    this.pendingPermissions.set(request.requestId, payload);
+    await this.append("agent", { type: "permission_request", payload });
   }
 
   /**
@@ -228,14 +246,25 @@ export class SessionActor {
       });
       return;
     }
-    // Unknown/duplicate/already-decided request: drop it (the delete reports
-    // whether it was actually pending), so a tool is never answered twice.
-    if (!this.pendingPermissions.delete(requestId)) {
+    // Unknown/duplicate/already-decided request: drop it, so a tool is never
+    // answered twice.
+    const pending = this.pendingPermissions.get(requestId);
+    if (pending === undefined) {
       return;
+    }
+    this.pendingPermissions.delete(requestId);
+    // An approval is a run of the step, so it takes the next attempt number
+    // (read now, not at request time — a step approved in between must not
+    // hand out the same key twice). A denial runs nothing and burns nothing.
+    let idempotencyKey: IdempotencyKey | undefined;
+    if (outcome.kind === "selected") {
+      const attempt = (this.stepAttempts[pending.stepId] ?? 0) + 1;
+      this.stepAttempts[pending.stepId] = attempt;
+      idempotencyKey = { sessionId: this.sessionId, stepId: pending.stepId, attempt };
     }
     await this.append(participantId, {
       type: "permission_decision",
-      payload: { requestId, outcome },
+      payload: { requestId, outcome, ...(idempotencyKey === undefined ? {} : { idempotencyKey }) },
     });
     this.deps.agent.respondPermission(requestId, outcome);
   }

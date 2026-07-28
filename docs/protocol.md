@@ -40,8 +40,8 @@ position. A log tail can be verified independently given the hash of the event p
 | `agent_message_chunk` | agent         | `text` (token-level streaming)                                                    |
 | `tool_call`           | agent         | `toolCallId`, `title`, `status`                                                   |
 | `tool_call_update`    | agent         | `toolCallId`, `status`, optional `output`                                         |
-| `permission_request`  | agent         | `requestId`, `toolCallId`, `title`, `options[]`                                   |
-| `permission_decision` | the Driver    | `requestId`, `outcome` (selected optionId or cancelled)                           |
+| `permission_request`  | agent         | `requestId`, `toolCallId`, `title`, `options[]`, `stepId`, `priorAttempts`        |
+| `permission_decision` | the Driver    | `requestId`, `outcome` (selected optionId or cancelled), `idempotencyKey?`        |
 | `turn_ended`          | agent         | `stopReason: end_turn \| max_tokens \| refusal \| cancelled`                      |
 | `checkpoint`          | system        | `summary`, `roster[]`, `driverId`, `pendingPermissions[]`, optional `snapshotRef` |
 
@@ -70,6 +70,23 @@ Roles: **Driver** (steers, interrupts, approves tools — at most one holds the 
 7. **Take the wheel**: only the current Driver hands off; a driverless wheel can be claimed
    by any non-Observer. The Driver leaving frees the wheel. Every transfer is logged as
    `control_handoff`.
+
+## Approvals and idempotency
+
+Side-effecting tools gate on `permission_request` and run only after the wheel-holding
+Driver's `permission_decision` (ADR-0004).
+
+- **`stepId`** identifies the _action_, as a SHA-256 prefix of the approval prompt — the text
+  the human was shown. Agents mint a fresh `toolCallId` on every retry, so keying off that
+  would make each retry look like a first attempt.
+- **`priorAttempts`** on the request is how many times this session already approved that
+  step. Above zero, the Driver is warned before approving a repeat.
+- **`idempotencyKey`** `(sessionId, stepId, attempt)` is stamped on a decision that approves.
+  A denial runs nothing and burns no attempt. Attempts survive hibernation and eviction.
+
+The key is recorded and surfaced, **not injected into the tool call** — ACP has no field that
+carries it to the remote system, so server-side dedupe needs a Side Street-aware tool wrapper.
+What it buys today is that a repeat is visible and deliberate rather than silent.
 
 ## Replay
 

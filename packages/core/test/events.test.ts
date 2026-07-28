@@ -32,11 +32,17 @@ describe("eventBodySchema", () => {
             { optionId: "allow", name: "Allow", kind: "allow_once" },
             { optionId: "deny", name: "Deny", kind: "reject_once" },
           ],
+          stepId: "3f09143fd695fbb6",
+          priorAttempts: 0,
         },
       },
       {
         type: "permission_decision",
-        payload: { requestId: "r1", outcome: { kind: "selected", optionId: "allow" } },
+        payload: {
+          requestId: "r1",
+          outcome: { kind: "selected", optionId: "allow" },
+          idempotencyKey: { sessionId: "s1", stepId: "3f09143fd695fbb6", attempt: 2 },
+        },
       },
       { type: "turn_ended", payload: { stopReason: "cancelled" } },
       {
