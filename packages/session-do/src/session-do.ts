@@ -177,7 +177,8 @@ export class SessionDurableObject extends DurableObject<Env> {
       return this.acceptViewer(request, url);
     }
     if (url.pathname.endsWith("/agent")) {
-      return this.acceptAgent(request);
+      await this.ensureStarted();
+      return await this.acceptAgent(request);
     }
     return Response.json({ error: "not found" }, { status: 404 });
   }
@@ -213,7 +214,7 @@ export class SessionDurableObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  private acceptAgent(request: Request): Response {
+  private async acceptAgent(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") {
       return Response.json({ error: "expected websocket upgrade" }, { status: 426 });
     }
@@ -221,6 +222,13 @@ export class SessionDurableObject extends DurableObject<Env> {
     const [client, server] = [pair[0], pair[1]];
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ kind: "agent" } satisfies Attachment);
+    // A decision or a cancel refers to a tool call or turn that belonged to
+    // the agent process that just died; delivering it to a fresh one would
+    // answer a question nobody asked. Undelivered prompts are human steering
+    // and still stand.
+    this.outbox = this.outbox.filter((frame) => frame.type === "prompt");
+    await this.actor.onAgentAttached();
+    await this.persistState();
     this.flushOutbox(server);
     return new Response(null, { status: 101, webSocket: client });
   }

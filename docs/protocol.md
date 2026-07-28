@@ -43,6 +43,7 @@ position. A log tail can be verified independently given the hash of the event p
 | `permission_request`  | agent         | `requestId`, `toolCallId`, `title`, `options[]`, `stepId`, `priorAttempts`        |
 | `permission_decision` | the Driver    | `requestId`, `outcome` (selected optionId or cancelled), `idempotencyKey?`        |
 | `turn_ended`          | agent         | `stopReason: end_turn \| max_tokens \| refusal \| cancelled`                      |
+| `step_unresolved`     | system        | `requestId`, `stepId`, `title`, `state`, optional `idempotencyKey`                |
 | `checkpoint`          | system        | `summary`, `roster[]`, `driverId`, `pendingPermissions[]`, optional `snapshotRef` |
 
 Tool-call statuses: `pending`, `in_progress`, `completed`, `failed`, `cancelled`.
@@ -87,6 +88,22 @@ Driver's `permission_decision` (ADR-0004).
 The key is recorded and surfaced, **not injected into the tool call** — ACP has no field that
 carries it to the remote system, so server-side dedupe needs a Side Street-aware tool wrapper.
 What it buys today is that a repeat is visible and deliberate rather than silent.
+
+**Replay or fork.** The bridge runner exits when its session socket closes, so a second
+connection to `/agent` means the previous agent process is gone — along with every tool call
+it was running and every approval it was waiting on. The session does not guess and does not
+re-run. It writes one `step_unresolved` event per orphaned step:
+
+| `state`               | Meaning                                        | Carries          |
+| --------------------- | ---------------------------------------------- | ---------------- |
+| `approved_unfinished` | Approved; may already have hit a remote system | `idempotencyKey` |
+| `never_decided`       | Nobody had decided, so nothing ran             | —                |
+
+Buffered `permission_decision` and `cancel` frames are dropped at the same moment — they refer
+to a tool call or turn that died with the process — while undelivered `prompt` frames still
+stand, because human steering has not been delivered yet. Replay is then just re-approving the
+step (its next attempt); fork is steering somewhere else. Both are choices a human makes with
+the fact in front of them.
 
 ## Replay
 

@@ -174,6 +174,19 @@ export function deriveSession(events: readonly SignedEvent[]): DerivedSession {
         timeline.push({ kind: "system", key, text });
         break;
       }
+      case "step_unresolved": {
+        // The prompt (if any) is dead — the agent that asked is gone.
+        pendingPermissions.delete(body.payload.requestId);
+        timeline.push({
+          kind: "system",
+          key,
+          text:
+            body.payload.state === "approved_unfinished"
+              ? `⚠ approved but never finished (attempt ${body.payload.idempotencyKey?.attempt ?? 1}): ${body.payload.title} — the agent restarted; approve again to retry it`
+              : `⊘ no longer awaiting approval: ${body.payload.title} — the agent restarted before anyone decided`,
+        });
+        break;
+      }
       case "checkpoint": {
         // The state the elided events would have produced. Re-applying it
         // mid-stream is a no-op for a viewer who watched them go by.

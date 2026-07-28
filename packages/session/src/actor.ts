@@ -52,8 +52,19 @@ export interface SessionActorSnapshot {
   lastCheckpointSeq: number;
   /** Approvals granted per `stepId`, i.e. the last attempt number issued. */
   stepAttempts: Record<string, number>;
+  /** Approved steps whose tool call has not reported a terminal status yet. */
+  inFlightSteps: InFlightStep[];
   /** Session id, for the idempotency keys minted on approval. */
   sessionId: string;
+}
+
+/** An approved step we are still waiting on the agent to finish. */
+export interface InFlightStep {
+  toolCallId: string;
+  requestId: string;
+  stepId: string;
+  title: string;
+  key: IdempotencyKey;
 }
 
 export interface PermissionRequest {
@@ -71,6 +82,7 @@ export class SessionActor {
   private readonly pendingPermissions: Map<string, PermissionRequestPayload>;
   private lastCheckpointSeq: number;
   private readonly stepAttempts: Record<string, number>;
+  private readonly inFlightSteps: Map<string, InFlightStep>;
   private sessionId: string;
 
   constructor(
@@ -86,6 +98,9 @@ export class SessionActor {
     );
     this.lastCheckpointSeq = snapshot?.lastCheckpointSeq ?? -1;
     this.stepAttempts = { ...snapshot?.stepAttempts };
+    this.inFlightSteps = new Map(
+      (snapshot?.inFlightSteps ?? []).map((step) => [step.toolCallId, step]),
+    );
     this.sessionId = snapshot?.sessionId ?? "";
   }
 
@@ -97,6 +112,7 @@ export class SessionActor {
       pendingPermissions: [...this.pendingPermissions.values()],
       lastCheckpointSeq: this.lastCheckpointSeq,
       stepAttempts: { ...this.stepAttempts },
+      inFlightSteps: [...this.inFlightSteps.values()],
       sessionId: this.sessionId,
     };
   }
@@ -195,12 +211,53 @@ export class SessionActor {
   /** An update streamed from the agent (already translated to an event body). */
   async onAgentEvent(body: EventBody): Promise<void> {
     await this.append("agent", body);
-    const boundaryReached =
-      body.type === "tool_call_update" &&
-      (body.payload.status === "completed" || body.payload.status === "failed");
-    if (boundaryReached) {
+    if (body.type !== "tool_call_update") {
+      return;
+    }
+    const status = body.payload.status;
+    if (status === "completed" || status === "failed" || status === "cancelled") {
+      // Whatever the outcome, we saw one: the step is accounted for.
+      this.inFlightSteps.delete(body.payload.toolCallId);
+    }
+    if (status === "completed" || status === "failed") {
       this.applyEffects(this.steering.onToolCallBoundary());
     }
+  }
+
+  /**
+   * A new agent bridge attached. The runner exits when its session socket
+   * closes, so a second attach means the previous agent process is gone —
+   * with every tool call it was running and every approval it was waiting on.
+   * Neither is silently retried (that is the blind-rollback trap): each is
+   * logged as unresolved, and the humans choose. Re-approving the same step
+   * is simply its next attempt.
+   */
+  async onAgentAttached(): Promise<void> {
+    for (const step of this.inFlightSteps.values()) {
+      await this.append("system", {
+        type: "step_unresolved",
+        payload: {
+          requestId: step.requestId,
+          stepId: step.stepId,
+          title: step.title,
+          state: "approved_unfinished",
+          idempotencyKey: step.key,
+        },
+      });
+    }
+    this.inFlightSteps.clear();
+    for (const pending of this.pendingPermissions.values()) {
+      await this.append("system", {
+        type: "step_unresolved",
+        payload: {
+          requestId: pending.requestId,
+          stepId: pending.stepId,
+          title: pending.title,
+          state: "never_decided",
+        },
+      });
+    }
+    this.pendingPermissions.clear();
   }
 
   /**
@@ -261,6 +318,15 @@ export class SessionActor {
       const attempt = (this.stepAttempts[pending.stepId] ?? 0) + 1;
       this.stepAttempts[pending.stepId] = attempt;
       idempotencyKey = { sessionId: this.sessionId, stepId: pending.stepId, attempt };
+      // In flight until the tool call reports a terminal status. If the agent
+      // dies first, this is what we cannot account for.
+      this.inFlightSteps.set(pending.toolCallId, {
+        toolCallId: pending.toolCallId,
+        requestId: pending.requestId,
+        stepId: pending.stepId,
+        title: pending.title,
+        key: idempotencyKey,
+      });
     }
     await this.append(participantId, {
       type: "permission_decision",

@@ -218,4 +218,42 @@ describe("deriveSession", () => {
     expect(timeline[0]).toMatchObject({ text: "Alice joined as driver" });
     expect(roster).toHaveLength(1);
   });
+  it("clears a pending approval the agent restart orphaned", async () => {
+    const events = await log([
+      {
+        authorId: "agent",
+        body: {
+          type: "permission_request",
+          payload: {
+            requestId: "perm-1",
+            toolCallId: "tc-1",
+            title: "Post the release notes",
+            options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+            stepId: "0123456789abcdef",
+            priorAttempts: 0,
+          },
+        },
+      },
+      {
+        authorId: "system",
+        body: {
+          type: "step_unresolved",
+          payload: {
+            requestId: "perm-1",
+            stepId: "0123456789abcdef",
+            title: "Post the release notes",
+            state: "approved_unfinished",
+            idempotencyKey: { sessionId: "s1", stepId: "0123456789abcdef", attempt: 1 },
+          },
+        },
+      },
+    ]);
+    const { timeline, pendingPermissions } = deriveSession(events);
+    // No dead button to click, and the timeline says why.
+    expect(pendingPermissions).toEqual([]);
+    expect(timeline.at(-1)).toMatchObject({
+      kind: "system",
+      text: expect.stringContaining("approved but never finished (attempt 1)") as unknown as string,
+    });
+  });
 });

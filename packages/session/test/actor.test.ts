@@ -490,3 +490,93 @@ describe("idempotency keys for approved steps", () => {
     expect(decision.payload.idempotencyKey?.sessionId).toBe("sess-1");
   });
 });
+
+describe("unresolved steps when the agent restarts", () => {
+  const approved = { kind: "selected", optionId: "allow" } as const;
+
+  it("logs an approved step nobody saw finish, with the key that ran", async () => {
+    const { store, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", approved);
+
+    // The sandbox dies mid-tool-call; a fresh bridge attaches.
+    await actor.onAgentAttached();
+    const event = store.events.at(-1);
+    if (event?.body.type !== "step_unresolved") throw new Error("expected step_unresolved");
+    expect(event.authorId).toBe("system");
+    expect(event.body.payload).toEqual({
+      requestId: "perm-1",
+      stepId: await stepIdFor(REQUEST.title),
+      title: REQUEST.title,
+      state: "approved_unfinished",
+      idempotencyKey: {
+        sessionId: "sess-1",
+        stepId: await stepIdFor(REQUEST.title),
+        attempt: 1,
+      },
+    });
+  });
+
+  it("says nothing about a step that reported a terminal status", async () => {
+    const { store, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", approved);
+    await actor.onAgentEvent({
+      type: "tool_call_update",
+      payload: { toolCallId: "tc-1", status: "completed" },
+    });
+
+    await actor.onAgentAttached();
+    expect(store.events.filter((e) => e.body.type === "step_unresolved")).toHaveLength(0);
+  });
+
+  it("closes a request nobody had decided — nothing ran, so no key", async () => {
+    const { store, agent, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+
+    await actor.onAgentAttached();
+    const event = store.events.at(-1);
+    if (event?.body.type !== "step_unresolved") throw new Error("expected step_unresolved");
+    expect(event.body.payload.state).toBe("never_decided");
+    expect(event.body.payload.idempotencyKey).toBeUndefined();
+
+    // The gate is closed: a late click answers nothing.
+    await actor.decide("alice", "perm-1", approved);
+    expect(agent.permissionResponses).toEqual([]);
+    expect(store.events.at(-1)?.body.type).toBe("step_unresolved");
+  });
+
+  it("treats a re-approval as the next attempt, not a fresh step", async () => {
+    const { store, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", approved);
+    await actor.onAgentAttached();
+
+    // The humans chose replay: the same action, asked again by the new agent.
+    await actor.onPermissionRequest({ ...REQUEST, requestId: "perm-2", toolCallId: "tc-2" });
+    await actor.decide("alice", "perm-2", approved);
+    const decision = store.events.at(-1)?.body;
+    if (decision?.type !== "permission_decision") throw new Error("expected a decision");
+    expect(decision.payload.idempotencyKey?.attempt).toBe(2);
+  });
+
+  it("carries in-flight steps across a snapshot restore", async () => {
+    const { store, broadcaster, agent, actor } = await seededSession();
+    await actor.onPermissionRequest(REQUEST);
+    await actor.decide("alice", "perm-1", approved);
+
+    // The Durable Object was evicted between the approval and the restart.
+    const revived = new SessionActor({ store, broadcaster, agent, now: () => 100 }, actor.snapshot);
+    await revived.onAgentAttached();
+    const event = store.events.at(-1);
+    if (event?.body.type !== "step_unresolved") throw new Error("expected step_unresolved");
+    expect(event.body.payload.state).toBe("approved_unfinished");
+  });
+
+  it("is silent when the first agent attaches", async () => {
+    const { store, actor } = await seededSession();
+    const before = store.events.length;
+    await actor.onAgentAttached();
+    expect(store.events.length).toBe(before);
+  });
+});

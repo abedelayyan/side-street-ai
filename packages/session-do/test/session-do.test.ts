@@ -329,6 +329,56 @@ async function waitForOpenSockets(sessionId: string, count: number): Promise<voi
   throw new Error(`timed out waiting for ${count} open socket(s)`);
 }
 
+describe("agent restart", () => {
+  it("drops a stale decision, keeps undelivered steering, and flags the step", async () => {
+    const sessionId = freshSession();
+    const alice = await connect(viewerPath(sessionId, "alice", "driver"));
+    await alice.waitFor((f) => f["type"] === "welcome");
+    alice.ws.send(JSON.stringify({ type: "handoff", toParticipantId: "alice" }));
+    await alice.waitFor(isEventOf("control_handoff"));
+
+    const agent = await connect(`/session/${sessionId}/agent`);
+    agent.ws.send(
+      JSON.stringify({
+        type: "permission_request",
+        requestId: "perm-1",
+        toolCallId: "tc-1",
+        title: "Post the release notes to #general",
+        options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+      }),
+    );
+    await alice.waitFor(isEventOf("permission_request"));
+
+    // The sandbox dies. Alice approves and steers into the gap; both queue.
+    agent.ws.close();
+    await waitForOpenSockets(sessionId, 1);
+    alice.ws.send(
+      JSON.stringify({
+        type: "decide",
+        requestId: "perm-1",
+        outcome: { kind: "selected", optionId: "allow" },
+      }),
+    );
+    await alice.waitFor(isEventOf("permission_decision"));
+    alice.ws.send(
+      JSON.stringify({ type: "steer", id: "m1", text: "and then?", delivery: "queue" }),
+    );
+    await alice.waitFor(isEventOf("human_message"));
+
+    // A fresh bridge attaches: it never asked for that permission.
+    const restarted = await connect(`/session/${sessionId}/agent`);
+    const prompt = await restarted.waitFor((f) => f["type"] === "prompt");
+    expect((prompt["messages"] as Array<{ text: string }>)[0]?.text).toBe("and then?");
+    expect(restarted.frames.filter((f) => f["type"] === "permission_decision")).toHaveLength(0);
+
+    // And the humans are told the step's outcome is unaccounted for.
+    const unresolved = await alice.waitFor(isEventOf("step_unresolved"));
+    expect((unresolved["event"] as SignedEvent).body).toMatchObject({
+      payload: { state: "approved_unfinished", idempotencyKey: { attempt: 1 } },
+    });
+  });
+});
+
 describe("reconnect", () => {
   it("keeps a multi-device participant present until their last socket closes", async () => {
     const sessionId = freshSession();

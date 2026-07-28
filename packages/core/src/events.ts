@@ -145,6 +145,27 @@ export const eventBodySchema = z.discriminatedUnion("type", [
     }),
   }),
   /**
+   * A gated step whose outcome the session cannot account for, because the
+   * agent process holding it went away (PLAN.md §3.7: replay-or-fork, never
+   * blind rollback). We do not guess and we do not re-run: the fact is logged
+   * and the humans decide, and re-approving is simply the next attempt.
+   */
+  z.object({
+    type: z.literal("step_unresolved"),
+    payload: z.object({
+      requestId: z.string().min(1),
+      stepId: z.string().min(1),
+      title: z.string().min(1),
+      /**
+       * `approved_unfinished` — it was approved and may have hit a remote
+       * system; `never_decided` — nobody had decided, so nothing ran.
+       */
+      state: z.enum(["approved_unfinished", "never_decided"]),
+      /** The key the approval issued; absent when nothing was ever approved. */
+      idempotencyKey: idempotencyKeySchema.optional(),
+    }),
+  }),
+  /**
    * A periodic snapshot of derived state, written into the log so a late
    * joiner can start here instead of replaying everything before it. The
    * state is carried in-band rather than fetched out of band precisely
