@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    // Node, not workerd: the benchmark is a network client of a running
+    // Worker, so it uses Node's own fetch/WebSocket rather than the
+    // runtime's.
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["./**/*.ts"]
+}

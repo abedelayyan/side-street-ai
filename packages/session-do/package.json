@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "lint": "eslint src test",
+    "benchmark": "vitest run --config vitest.benchmark.config.ts",
+    "lint": "eslint src test benchmark",
     "dev": "wrangler dev"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",
     "@cloudflare/workers-types": "^4.20250705.0",
+    "@types/node": "^24.0.0",
     "vitest": "^3.2.0",
     "wrangler": "^4.24.0"
   }

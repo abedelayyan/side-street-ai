@@ -197,6 +197,10 @@ _Goal: the session layer is trustworthy enough to hold real credentials in front
 **Exit benchmark:** the red-team suite passes — no injection path exfiltrates a secret to an
 Observer; a session survives DO eviction, sandbox pause/resume, and 24h of wall-clock time
 with replay intact.
+_Automated: the red-team half runs in CI on every PR; the durability half is
+`pnpm --filter @side-street/session-do benchmark` against a running Worker — see
+`docs/benchmarks/phase-2.md`. Passing locally against `wrangler dev` (including a full
+cold-restart of the server); the 24h soak against a deployment is still to run._
 
 ### Phase 3 — The vertical wedge (weeks 11–16)
 
